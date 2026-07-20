@@ -1,0 +1,283 @@
+from django.db import models
+from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError
+
+
+def validate_grade_bands(value):
+    """
+    Validate that grade_bands is a list of dicts each containing
+    'grade' (str) and 'min' (numeric) keys.
+    """
+    if not isinstance(value, list):
+        raise ValidationError("grade_bands must be a list.")
+    for i, band in enumerate(value):
+        if not isinstance(band, dict):
+            raise ValidationError(f"grade_bands[{i}] must be an object.")
+        if "grade" not in band:
+            raise ValidationError(f"grade_bands[{i}] is missing required key 'grade'.")
+        if "min" not in band:
+            raise ValidationError(f"grade_bands[{i}] is missing required key 'min'.")
+        try:
+            float(band["min"])
+        except (TypeError, ValueError):
+            raise ValidationError(f"grade_bands[{i}].min must be a number, got {band['min']!r}.")
+
+
+class UserProfile(models.Model):
+    ROLE_CHOICES = [
+        ("super_admin", "Super Administrator"),
+        ("admin", "School Administrator"),
+        ("teacher", "Teacher"),
+        ("accountant", "Accountant"),
+        ("parent", "Parent"),
+        ("staff", "Staff"),
+    ]
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="profile")
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="admin")
+
+    def __str__(self):
+        return f"{self.user.get_full_name()} ({self.role})"
+
+
+class SchoolSettings(models.Model):
+    school_name = models.CharField(max_length=200, default="AL NAMAA ACADEMY")
+    short_name = models.CharField(max_length=50, default="AL NAMAA")
+    email = models.EmailField(default="admin@school.edu")
+    phone = models.CharField(max_length=20, blank=True)
+    website = models.URLField(blank=True)
+    address = models.TextField(blank=True)
+    motto = models.CharField(max_length=200, blank=True)
+    academic_session = models.CharField(max_length=20, default="2026")
+    current_term = models.CharField(
+        max_length=20,
+        choices=[("Term 1", "Term 1"), ("Term 2", "Term 2"), ("Term 3", "Term 3")],
+        default="Term 2",
+    )
+    term_start_date = models.DateField(null=True, blank=True)
+    term_end_date = models.DateField(null=True, blank=True)
+    grade_a = models.IntegerField(default=75)
+    grade_b = models.IntegerField(default=65)
+    grade_c = models.IntegerField(default=55)
+    grade_d = models.IntegerField(default=45)
+    # Fully dynamic grade bands: [{"grade": "A", "min": 75, "remark": "Excellent"}, ...]
+    # Sorted descending by min. The last entry is the lowest/fail grade.
+    grade_bands = models.JSONField(default=list, blank=True, validators=[validate_grade_bands])
+    security_settings = models.JSONField(default=dict, blank=True)
+    notification_settings = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        verbose_name = "School Settings"
+        verbose_name_plural = "School Settings"
+
+    def __str__(self):
+        return self.school_name
+
+
+class Notification(models.Model):
+    TYPE_CHOICES = [
+        ("warning", "Warning"),
+        ("info", "Info"),
+        ("success", "Success"),
+        ("error", "Error"),
+    ]
+    recipient = models.ForeignKey(User, on_delete=models.CASCADE, related_name="notifications", null=True, blank=True)
+    title = models.CharField(max_length=200)
+    message = models.TextField()
+    type = models.CharField(max_length=20, choices=TYPE_CHOICES, default="info")
+    date = models.DateField(auto_now_add=True)
+    read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.title
+
+
+class AuditLog(models.Model):
+    ACTION_CHOICES = [
+        ("LOGIN", "Login"),
+        ("LOGOUT", "Logout"),
+        ("CREATE", "Create"),
+        ("UPDATE", "Update"),
+        ("DELETE", "Delete"),
+        ("EXPORT", "Export"),
+        ("SETTINGS", "Settings"),
+        ("VIEW", "View"),
+    ]
+    STATUS_CHOICES = [("success", "Success"), ("failed", "Failed")]
+
+    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    action = models.CharField(max_length=20, choices=ACTION_CHOICES, db_index=True)
+    module = models.CharField(max_length=100, db_index=True)
+    detail = models.TextField()
+    ip = models.GenericIPAddressField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="success")
+
+    class Meta:
+        ordering = ["-timestamp"]
+
+    def __str__(self):
+        return f"{self.action} by {self.user} at {self.timestamp}"
+
+
+class Message(models.Model):
+    sender = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sent_messages")
+    recipient = models.ForeignKey(User, on_delete=models.CASCADE, related_name="received_messages")
+    body = models.TextField(max_length=2000)
+    read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.sender} → {self.recipient}: {self.body[:40]}"
+
+
+# ── Team ──────────────────────────────────────────────────────────────────────
+
+def team_photo_upload(instance, filename):
+    import os
+    ext = os.path.splitext(filename)[1].lower()
+    return f"team/{instance.slug or 'member'}{ext}"
+
+
+class TeamMember(models.Model):
+    DEPARTMENT_CHOICES = [
+        ("leadership",    "Leadership"),
+        ("academic",      "Academic"),
+        ("administration","Administration"),
+        ("support",       "Support Staff"),
+        ("board",         "Board of Directors"),
+    ]
+
+    first_name   = models.CharField(max_length=100)
+    last_name    = models.CharField(max_length=100)
+    title        = models.CharField(max_length=150, help_text="e.g. Chief Executive Officer")
+    department   = models.CharField(max_length=30, choices=DEPARTMENT_CHOICES, default="academic")
+    bio          = models.TextField(blank=True)
+    email        = models.EmailField(blank=True)
+    phone        = models.CharField(max_length=30, blank=True)
+    linkedin_url = models.URLField(blank=True)
+    photo        = models.ImageField(upload_to="team/", null=True, blank=True)
+    is_active    = models.BooleanField(default=True)
+    order        = models.PositiveIntegerField(default=0, help_text="Lower = appears first")
+    slug         = models.SlugField(max_length=120, blank=True)
+    created_at   = models.DateTimeField(auto_now_add=True)
+    updated_at   = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["order", "first_name"]
+
+    def __str__(self):
+        return f"{self.first_name} {self.last_name} – {self.title}"
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            from django.utils.text import slugify
+            self.slug = slugify(f"{self.first_name}-{self.last_name}")
+        super().save(*args, **kwargs)
+
+
+class CEOMessage(models.Model):
+    """A singleton-style model for the CEO/Principal letter on the Team page."""
+    heading     = models.CharField(max_length=200, default="A Message from Our CEO")
+    body        = models.TextField(help_text="The full letter/message text (HTML supported)")
+    author_name = models.CharField(max_length=200, default="")
+    author_title= models.CharField(max_length=200, default="Chief Executive Officer")
+    photo       = models.ImageField(upload_to="team/ceo/", null=True, blank=True)
+    is_active   = models.BooleanField(default=True)
+    updated_at  = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "CEO Message"
+        verbose_name_plural = "CEO Messages"
+
+    def __str__(self):
+        return self.heading
+
+
+class Fundraiser(models.Model):
+    CATEGORY_CHOICES = [
+        ("building",    "Building & Infrastructure"),
+        ("education",   "Education & Scholarships"),
+        ("orphans",     "Orphan Support"),
+        ("equipment",   "Equipment & Technology"),
+        ("emergency",   "Emergency Relief"),
+        ("general",     "General Fundraiser"),
+    ]
+    STATUS_CHOICES = [
+        ("active",    "Active"),
+        ("completed", "Completed"),
+        ("paused",    "Paused"),
+    ]
+
+    title          = models.CharField(max_length=200)
+    slug           = models.SlugField(max_length=220, blank=True, unique=True)
+    category       = models.CharField(max_length=30, choices=CATEGORY_CHOICES, default="general")
+    description    = models.TextField(help_text="Full description of the fundraiser")
+    short_desc     = models.CharField(max_length=300, blank=True, help_text="One-line summary shown on cards")
+    goal_amount    = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    raised_amount  = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    donor_count    = models.PositiveIntegerField(default=0)
+    image          = models.ImageField(upload_to="fundraisers/", null=True, blank=True)
+    status         = models.CharField(max_length=20, choices=STATUS_CHOICES, default="active")
+    is_featured    = models.BooleanField(default=False, help_text="Show on homepage / top of fundraisers page")
+    start_date     = models.DateField(null=True, blank=True)
+    end_date       = models.DateField(null=True, blank=True)
+    donate_url     = models.URLField(blank=True, help_text="External payment / donation link")
+    order          = models.PositiveIntegerField(default=0, help_text="Lower = appears first")
+    created_at     = models.DateTimeField(auto_now_add=True)
+    updated_at     = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["order", "-created_at"]
+        verbose_name = "Fundraiser"
+        verbose_name_plural = "Fundraisers"
+
+    def __str__(self):
+        return self.title
+
+    @property
+    def progress_percent(self):
+        if self.goal_amount and self.goal_amount > 0:
+            pct = (self.raised_amount / self.goal_amount) * 100
+            return min(round(float(pct), 1), 100)
+        return 0
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            from django.utils.text import slugify
+            import uuid
+            base = slugify(self.title)[:200]
+            self.slug = f"{base}-{str(uuid.uuid4())[:8]}"
+        super().save(*args, **kwargs)
+
+
+class Donation(models.Model):
+    STATUS_CHOICES = [
+        ("pending",   "Pending"),
+        ("received",  "Received"),
+        ("cancelled", "Cancelled"),
+    ]
+
+    fundraiser   = models.ForeignKey(Fundraiser, on_delete=models.CASCADE, related_name="donations")
+    donor_name   = models.CharField(max_length=200)
+    donor_email  = models.EmailField(blank=True)
+    amount       = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    message      = models.TextField(blank=True, help_text="Public message / comment from the donor")
+    is_anonymous = models.BooleanField(default=False)
+    status       = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    created_at   = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Donation"
+        verbose_name_plural = "Donations"
+
+    def __str__(self):
+        name = "Anonymous" if self.is_anonymous else self.donor_name
+        return f"{name} → {self.fundraiser.title} (${self.amount})"
