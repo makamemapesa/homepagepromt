@@ -20,12 +20,10 @@ def create_user_profile(sender, instance, created, **kwargs):
     if not created:
         return
 
-    # Avoid double-creation if a profile already exists for any reason
-    if hasattr(instance, "profile"):
-        return
-
+    # Avoid double-creation if a profile already exists for any reason.
+    # Use get_or_create so repeated signals or explicit test creates won't raise IntegrityError.
     role = _get_default_role(instance)
-    UserProfile.objects.create(user=instance, role=role)
+    UserProfile.objects.get_or_create(user=instance, defaults={"role": role})
 
 
 @receiver(post_migrate)
@@ -35,4 +33,4 @@ def ensure_superuser_profiles(sender, **kwargs):
         return
 
     for user in User.objects.filter(is_superuser=True).filter(profile__isnull=True):
-        UserProfile.objects.create(user=user, role="super_admin")
+        UserProfile.objects.get_or_create(user=user, defaults={"role": "super_admin"})
