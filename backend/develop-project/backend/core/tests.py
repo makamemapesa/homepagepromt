@@ -1,4 +1,5 @@
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from rest_framework.test import APIClient
 
@@ -34,3 +35,30 @@ class HomePageContentAPITests(TestCase):
         self.assertEqual(content.hero_title, "New Hero Title")
         self.assertEqual(content.about_title, "New About Title")
         self.assertEqual(content.mission_description, "New mission text")
+
+    def test_super_admin_can_upload_homepage_media(self):
+        from io import BytesIO
+        from PIL import Image
+
+        self.client.force_authenticate(user=self.user)
+        buffer = BytesIO()
+        Image.new("RGB", (1, 1), color="white").save(buffer, format="PNG")
+        buffer.seek(0)
+        image_file = SimpleUploadedFile("hero.png", buffer.read(), content_type="image/png")
+        video_file = SimpleUploadedFile("intro.mp4", b"FAKEVIDEO1234", content_type="video/mp4")
+        payload = {
+            "hero_title": "Hero with Upload",
+            "hero_image_upload": image_file,
+            "hero_video_upload": video_file,
+        }
+
+        response = self.client.patch("/api/homepage-content/", payload, format="multipart")
+
+        self.assertEqual(response.status_code, 200)
+        content = HomePageContent.objects.get()
+        self.assertTrue(content.hero_image_upload.name)
+        self.assertTrue(content.hero_image_upload.name.endswith(".png"))
+        self.assertTrue(content.hero_video_upload.name)
+        self.assertTrue(content.hero_video_upload.name.endswith(".mp4"))
+        self.assertIn("hero_image_upload", response.json())
+        self.assertIn("hero_video_upload", response.json())

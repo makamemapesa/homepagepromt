@@ -2,6 +2,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
     UserViewSet, SchoolSettingsViewSet, NotificationViewSet, AuditLogViewSet,
+    HomePageContentView,
     DashboardStatsView, ReportChartsView,
     ParentDashboardView, ParentAttendanceView, ParentTimetableView,
     PendingParentsView, PendingParentDeleteView,
@@ -21,6 +22,7 @@ router.register("donations", DonationViewSet, basename="donation")
 urlpatterns = [
     path("", include(router.urls)),
     path("settings/", SchoolSettingsViewSet.as_view({"get": "list", "patch": "update", "put": "update"})),
+    path("homepage-content/", HomePageContentView.as_view(), name="homepage-content"),
     path("dashboard/stats/", DashboardStatsView.as_view(), name="dashboard-stats"),
     path("reports/charts/", ReportChartsView.as_view(), name="report-charts"),
     path("parent/dashboard/", ParentDashboardView.as_view(), name="parent-dashboard"),

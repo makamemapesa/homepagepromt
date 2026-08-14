@@ -39,6 +39,37 @@ class UserProfile(models.Model):
         return f"{self.user.get_full_name()} ({self.role})"
 
 
+class HomePageContent(models.Model):
+    hero_title = models.CharField(max_length=200, default="AL NAMAA ACADEMY")
+    hero_subtitle = models.CharField(max_length=200, default="Zanzibar • Expect Success")
+    hero_description = models.TextField(default="An officially accredited institution offering Nursery, Primary, and Secondary education — grounded in Islamic values, aligned with the ZEC Framework and NECTA examinations.")
+    hero_primary_cta = models.CharField(max_length=80, default="Apply for Admission")
+    hero_secondary_cta = models.CharField(max_length=80, default="Discover More")
+    hero_video_url = models.URLField(blank=True, default="https://www.youtube.com/embed/0t9kQG1Dqv0?rel=0&modestbranding=1&color=white")
+    about_title = models.CharField(max_length=200, default="Excellence Through Knowledge & Character")
+    about_description = models.TextField(default="Located in Kisauni, West “B” District, Zanzibar, AL NAMAA ACADEMY delivers high-quality education grounded in Islamic values. Our model combines rigorous academics with moral and spiritual development.")
+    about_highlights = models.JSONField(default=list, blank=True)
+    news_section_title = models.CharField(max_length=200, default="News & Updates")
+    news_section_subtitle = models.CharField(max_length=200, default="Latest school stories, achievements and announcements")
+    featured_news_post = models.JSONField(default=dict, blank=True)
+    news_cards = models.JSONField(default=list, blank=True)
+    vision_title = models.CharField(max_length=200, default="Pathways to Fulfilment")
+    vision_description = models.TextField(default="To create pathways that assist every student in achieving their academic and personal goals — empowering them to build fulfilling futures and contribute meaningfully to the wider community.")
+    mission_title = models.CharField(max_length=200, default="Excellence in Education")
+    mission_description = models.TextField(default="To educate all students to the highest levels of achievement, preparing them to be productive, ethical, and creative members of society equipped with the knowledge, skills, and values needed for sustainable development.")
+    updated_at = models.DateTimeField(auto_now=True)
+    hero_image = models.URLField(blank=True, default="")
+    hero_image_upload = models.ImageField(upload_to="homepage/images/", null=True, blank=True)
+    hero_video_upload = models.FileField(upload_to="homepage/videos/", null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Home Page Content"
+        verbose_name_plural = "Home Page Content"
+
+    def __str__(self):
+        return self.hero_title
+
+
 class SchoolSettings(models.Model):
     school_name = models.CharField(max_length=200, default="AL NAMAA ACADEMY")
     short_name = models.CharField(max_length=50, default="AL NAMAA")

@@ -1,5 +1,6 @@
 from rest_framework import viewsets, status, generics
 from rest_framework.decorators import action
+from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.contrib.auth.models import User
@@ -7,7 +8,7 @@ from django.db import models
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 
-from .models import UserProfile, SchoolSettings, Notification, AuditLog, TeamMember, CEOMessage, Fundraiser, Donation
+from .models import UserProfile, SchoolSettings, Notification, AuditLog, TeamMember, CEOMessage, Fundraiser, Donation, HomePageContent
 from .permissions import IsSuperAdmin, IsSuperAdminOrAdmin, IsAccountantOrAdmin
 from .utils import get_user_role
 from .serializers import (
@@ -15,6 +16,7 @@ from .serializers import (
     UserCreateSerializer,
     UserUpdateSerializer,
     SchoolSettingsSerializer,
+    HomePageContentSerializer,
     NotificationSerializer,
     AuditLogSerializer,
     TeamMemberSerializer,
@@ -85,6 +87,29 @@ class UserViewSet(viewsets.ModelViewSet):
         """Any authenticated user can view their own profile."""
         serializer = UserSerializer(request.user)
         return Response(serializer.data)
+
+
+class HomePageContentView(generics.RetrieveUpdateAPIView):
+    queryset = HomePageContent.objects.all()
+    serializer_class = HomePageContentSerializer
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
+
+    def get_object(self):
+        obj, _ = HomePageContent.objects.get_or_create(pk=1)
+        return obj
+
+    def get_permissions(self):
+        if self.request.method in {"GET", "HEAD", "OPTIONS"}:
+            return [AllowAny()]
+        return [IsSuperAdminOrAdmin()]
+
+    def update(self, request, *args, **kwargs):
+        # Accept hero_image in both snake_case and camelCase from frontend
+        if request.data.get("heroImage") and not request.data.get("hero_image"):
+            data = request.data.copy()
+            data["hero_image"] = data.get("heroImage")
+            request._full_data = data
+        return super().update(request, *args, **kwargs)
 
 
 class SchoolSettingsViewSet(viewsets.ViewSet):

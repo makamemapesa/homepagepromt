@@ -1,0 +1,405 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: oklch(0.98 0.002 240);
+  --foreground: oklch(0.15 0.02 250);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.15 0.02 250);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.15 0.02 250);
+  --primary: oklch(0.35 0.12 250);
+  --primary-foreground: oklch(0.98 0.002 240);
+  --secondary: oklch(0.95 0.01 240);
+  --secondary-foreground: oklch(0.25 0.05 250);
+  --muted: oklch(0.95 0.005 240);
+  --muted-foreground: oklch(0.50 0.02 250);
+  --accent: oklch(0.65 0.18 155);
+  --accent-foreground: oklch(0.98 0.002 240);
+  --destructive: oklch(0.55 0.22 25);
+  --destructive-foreground: oklch(0.98 0.002 240);
+  --border: oklch(0.90 0.01 240);
+  --input: oklch(0.90 0.01 240);
+  --ring: oklch(0.35 0.12 250);
+  --chart-1: oklch(0.35 0.12 250);
+  --chart-2: oklch(0.65 0.18 155);
+  --chart-3: oklch(0.70 0.15 45);
+  --chart-4: oklch(0.55 0.15 300);
+  --chart-5: oklch(0.60 0.20 30);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.20 0.06 250);
+  --sidebar-foreground: oklch(0.92 0.01 240);
+  --sidebar-primary: oklch(0.65 0.18 155);
+  --sidebar-primary-foreground: oklch(0.98 0.002 240);
+  --sidebar-accent: oklch(0.28 0.06 250);
+  --sidebar-accent-foreground: oklch(0.92 0.01 240);
+  --sidebar-border: oklch(0.30 0.06 250);
+  --sidebar-ring: oklch(0.65 0.18 155);
+  --success: oklch(0.60 0.18 155);
+  --success-foreground: oklch(0.98 0.002 240);
+  --warning: oklch(0.75 0.15 75);
+  --warning-foreground: oklch(0.25 0.05 75);
+}
+
+.dark {
+  --background: oklch(0.14 0.02 250);
+  --foreground: oklch(0.92 0.01 240);
+  --card: oklch(0.18 0.02 250);
+  --card-foreground: oklch(0.92 0.01 240);
+  --popover: oklch(0.18 0.02 250);
+  --popover-foreground: oklch(0.92 0.01 240);
+  --primary: oklch(0.55 0.15 250);
+  --primary-foreground: oklch(0.98 0.002 240);
+  --secondary: oklch(0.25 0.04 250);
+  --secondary-foreground: oklch(0.92 0.01 240);
+  --muted: oklch(0.25 0.04 250);
+  --muted-foreground: oklch(0.65 0.02 250);
+  --accent: oklch(0.65 0.18 155);
+  --accent-foreground: oklch(0.98 0.002 240);
+  --destructive: oklch(0.45 0.18 25);
+  --destructive-foreground: oklch(0.98 0.002 240);
+  --border: oklch(0.28 0.04 250);
+  --input: oklch(0.28 0.04 250);
+  --ring: oklch(0.55 0.15 250);
+  --chart-1: oklch(0.55 0.15 250);
+  --chart-2: oklch(0.65 0.18 155);
+  --chart-3: oklch(0.70 0.15 45);
+  --chart-4: oklch(0.55 0.15 300);
+  --chart-5: oklch(0.60 0.20 30);
+  --sidebar: oklch(0.12 0.02 250);
+  --sidebar-foreground: oklch(0.92 0.01 240);
+  --sidebar-primary: oklch(0.65 0.18 155);
+  --sidebar-primary-foreground: oklch(0.98 0.002 240);
+  --sidebar-accent: oklch(0.20 0.04 250);
+  --sidebar-accent-foreground: oklch(0.92 0.01 240);
+  --sidebar-border: oklch(0.25 0.04 250);
+  --sidebar-ring: oklch(0.65 0.18 155);
+  --success: oklch(0.60 0.18 155);
+  --success-foreground: oklch(0.98 0.002 240);
+  --warning: oklch(0.75 0.15 75);
+  --warning-foreground: oklch(0.25 0.05 75);
+}
+
+@theme inline {
+  --font-sans: var(--font-inter), 'Inter', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', 'Geist Mono Fallback';
+  --font-heading: var(--font-space-grotesk), 'Space Grotesk', system-ui, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* ─── Scroll-reveal animations ──────────────────────────────── */
+.reveal,
+.reveal-left,
+.reveal-right,
+.reveal-scale {
+  transition-property: opacity, transform;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  transition-duration: 0.7s;
+}
+.reveal        { opacity: 0; transform: translateY(36px); }
+.reveal-left   { opacity: 0; transform: translateX(-48px); }
+.reveal-right  { opacity: 0; transform: translateX(48px); }
+.reveal-scale  { opacity: 0; transform: scale(0.88); }
+
+.reveal.in-view,
+.reveal-left.in-view,
+.reveal-right.in-view,
+.reveal-scale.in-view {
+  opacity: 1;
+  transform: none;
+}
+
+.delay-100 { transition-delay: 100ms !important; }
+.delay-200 { transition-delay: 200ms !important; }
+.delay-300 { transition-delay: 300ms !important; }
+.delay-400 { transition-delay: 400ms !important; }
+.delay-500 { transition-delay: 500ms !important; }
+.delay-600 { transition-delay: 600ms !important; }
+.delay-700 { transition-delay: 700ms !important; }
+
+/* ─── Hero entrance ──────────────────────────────── */
+@keyframes hero-fade-up {
+  from { opacity: 0; transform: translateY(40px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes hero-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.hero-anim-1 { animation: hero-fade-up 0.8s cubic-bezier(0.22,1,0.36,1) 0.1s both; }
+.hero-anim-2 { animation: hero-fade-up 0.8s cubic-bezier(0.22,1,0.36,1) 0.25s both; }
+.hero-anim-3 { animation: hero-fade-up 0.8s cubic-bezier(0.22,1,0.36,1) 0.4s both; }
+.hero-anim-4 { animation: hero-fade-up 0.8s cubic-bezier(0.22,1,0.36,1) 0.55s both; }
+.hero-anim-5 { animation: hero-fade-up 0.8s cubic-bezier(0.22,1,0.36,1) 0.7s both; }
+.hero-anim-6 { animation: hero-fade-up 0.8s cubic-bezier(0.22,1,0.36,1) 0.85s both; }
+
+/* ─── Floating logo ──────────────────────────────── */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-10px); }
+}
+.float { animation: float 5s ease-in-out infinite; }
+
+/* ─── Shimmer text ──────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    oklch(0.65 0.18 155),
+    oklch(0.85 0.22 155),
+    oklch(0.65 0.18 155)
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 4s linear infinite;
+}
+
+/* ─── Pulse ring on logo ──────────────────────────── */
+@keyframes pulse-ring {
+  0%   { transform: scale(1);   opacity: 0.5; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+.pulse-ring {
+  position: relative;
+}
+.pulse-ring::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 1.25rem;
+  border: 2px solid oklch(0.65 0.18 155);
+  animation: pulse-ring 2.5s ease-out infinite;
+}
+
+/* ─── Counter roll ──────────────────────────────── */
+@keyframes count-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.count-anim { animation: count-up 0.6s ease both; }
+
+/* ─── Gradient border card ──────────────────────── */
+.gradient-card {
+  position: relative;
+  background: var(--card);
+  border-radius: var(--radius-lg);
+}
+.gradient-card::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: calc(var(--radius-lg) + 1px);
+  background: linear-gradient(135deg, oklch(0.55 0.15 250 / 0.4), oklch(0.65 0.18 155 / 0.3));
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.gradient-card:hover::before { opacity: 1; }
+
+/* ─── Decorative blob ──────────────────────────── */
+@keyframes blob {
+  0%, 100% { transform: translate(0,0)   scale(1);   }
+  33%       { transform: translate(20px,-15px) scale(1.05); }
+  66%       { transform: translate(-10px, 15px) scale(0.97); }
+}
+.blob { animation: blob 10s ease-in-out infinite; }
+.blob-2 { animation: blob 13s ease-in-out infinite reverse; }
+
+/* ═══════════════════════════════════════════════════
+   ADVANCED ANIMATIONS
+════════════════════════════════════════════════════ */
+
+/* ─── Navbar scroll-shrink ──────────────────────── */
+.nav-scrolled {
+  height: 52px !important;
+  box-shadow: 0 4px 30px oklch(0.11 0.03 250 / 0.4);
+}
+.nav-scrolled .nav-logo-img {
+  width: 28px !important;
+  height: 28px !important;
+}
+
+/* ─── Hero parallax bg ──────────────────────────── */
+#hero-parallax-bg {
+  will-change: transform;
+  transition: none;
+}
+
+/* ─── Mouse spotlight on cards ──────────────────── */
+.spotlight-card {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.spotlight-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    500px circle at var(--mx, -100%) var(--my, -100%),
+    oklch(0.65 0.18 155 / 0.09) 0%,
+    transparent 70%
+  );
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 1;
+}
+.spotlight-section:not(:hover) .spotlight-card::after {
+  opacity: 0;
+}
+
+/* ─── 3D tilt card ──────────────────────────────── */
+.tilt-card {
+  transform-style: preserve-3d;
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+/* ─── Animated gradient CTA button ─────────────── */
+@keyframes gradient-pan {
+  0%   { background-position: 0%   50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0%   50%; }
+}
+.btn-gradient {
+  background: linear-gradient(
+    135deg,
+    oklch(0.65 0.18 155),
+    oklch(0.55 0.22 180),
+    oklch(0.70 0.20 140),
+    oklch(0.65 0.18 155)
+  ) !important;
+  background-size: 300% 300% !important;
+  animation: gradient-pan 5s ease infinite;
+}
+.btn-gradient:hover {
+  animation-play-state: paused;
+  filter: brightness(1.08);
+}
+
+/* ─── Stat number count-up pop ──────────────────── */
+@keyframes stat-pop {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+.stat-popped {
+  animation: stat-pop 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ─── Glowing accent border on section labels ───── */
+@keyframes label-glow {
+  0%, 100% { box-shadow: 0 0 0px oklch(0.65 0.18 155 / 0); }
+  50%       { box-shadow: 0 0 18px oklch(0.65 0.18 155 / 0.35); }
+}
+.label-pill {
+  animation: label-glow 3s ease-in-out infinite;
+}
+
+/* ─── Scroll-reveal: longer travel distance ─────── */
+.reveal        { transform: translateY(48px); }
+.reveal-left   { transform: translateX(-60px); }
+.reveal-right  { transform: translateX(60px); }
+.reveal-scale  { transform: scale(0.85); }
+.reveal.in-view,
+.reveal-left.in-view,
+.reveal-right.in-view,
+.reveal-scale.in-view {
+  opacity: 1;
+  transform: none;
+}
+
+/* ─── Staggered word reveal ─────────────────────── */
+.word-reveal {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: top;
+}
+.word-reveal span {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(110%);
+  transition: opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.word-reveal.revealed span {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ─── Accent streak line ────────────────────────── */
+@keyframes streak {
+  from { transform: scaleX(0); transform-origin: left; }
+  to   { transform: scaleX(1); transform-origin: left; }
+}
+.streak-line {
+  display: block;
+  height: 3px;
+  width: 40px;
+  background: var(--accent);
+  border-radius: 2px;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.3s;
+}
+.reveal.in-view .streak-line,
+.reveal-left.in-view .streak-line {
+  transform: scaleX(1);
+}

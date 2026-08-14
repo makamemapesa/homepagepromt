@@ -1,12 +1,28 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import UserProfile, SchoolSettings, Notification, AuditLog, TeamMember, CEOMessage, Fundraiser, Donation
+from .models import UserProfile, SchoolSettings, Notification, AuditLog, TeamMember, CEOMessage, Fundraiser, Donation, HomePageContent
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserProfile
         fields = ["role"]
+
+
+class HomePageContentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = HomePageContent
+        fields = [
+            "id", "hero_title", "hero_subtitle", "hero_description",
+            "hero_image", "hero_image_upload", "hero_video_url", "hero_video_upload",
+            "hero_primary_cta", "hero_secondary_cta",
+            "about_title", "about_description", "about_highlights",
+            "news_section_title", "news_section_subtitle",
+            "featured_news_post", "news_cards",
+            "vision_title", "vision_description",
+            "mission_title", "mission_description", "updated_at",
+        ]
+        read_only_fields = ["id", "updated_at"]
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -50,6 +66,8 @@ class UserSerializer(serializers.ModelSerializer):
             return profile.role
         if getattr(obj, "is_superuser", False):
             return "super_admin"
+        if getattr(obj, "is_staff", False):
+            return "admin"
         return ""
 
 

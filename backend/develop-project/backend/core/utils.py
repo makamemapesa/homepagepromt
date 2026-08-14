@@ -20,6 +20,8 @@ def get_user_role(user: Optional[User]) -> Optional[str]:
             return getattr(profile, "role", None)
         if getattr(user, "is_superuser", False):
             return "super_admin"
+        if getattr(user, "is_staff", False):
+            return "admin"
         return None
     except Exception:
         return None
