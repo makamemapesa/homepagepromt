@@ -128,6 +128,146 @@ class HomePageContent(models.Model):
     hero_image = models.URLField(blank=True, default="")
     hero_image_upload = models.ImageField(upload_to="homepage/images/", null=True, blank=True)
     hero_video_upload = models.FileField(upload_to="homepage/videos/", null=True, blank=True)
+    
+    # Section 1: Hero/Banner Additional Fields
+    hero_primary_cta_link = models.URLField(blank=True, default="")
+    hero_secondary_cta_link = models.URLField(blank=True, default="")
+    hero_background_color = models.CharField(max_length=7, default="#ffffff")
+    announcement_banner_enabled = models.BooleanField(default=False)
+    announcement_banner_text = models.CharField(max_length=500, blank=True, default="")
+    
+    # Section 2: Statistics
+    show_statistics_section = models.BooleanField(default=True)
+    total_students = models.IntegerField(default=0)
+    total_teachers = models.IntegerField(default=0)
+    established_year = models.IntegerField(default=2020)
+    academic_programs_count = models.IntegerField(default=3)
+    statistics_custom_label1 = models.CharField(max_length=100, blank=True, default="")
+    statistics_custom_value1 = models.CharField(max_length=100, blank=True, default="")
+    statistics_custom_label2 = models.CharField(max_length=100, blank=True, default="")
+    statistics_custom_value2 = models.CharField(max_length=100, blank=True, default="")
+    
+    # Section 3: About
+    why_choose_us_section_enabled = models.BooleanField(default=True)
+    why_choose_us_points = models.JSONField(default=list, blank=True)
+    school_story_section_enabled = models.BooleanField(default=False)
+    school_story_title = models.CharField(max_length=200, blank=True, default="")
+    school_story_description = models.TextField(blank=True, default="")
+    school_story_image = models.ImageField(upload_to="homepage/images/", null=True, blank=True)
+    
+    # Section 4: Academics
+    academics_section_enabled = models.BooleanField(default=True)
+    academics_section_title = models.CharField(max_length=200, blank=True, default="")
+    academics_section_subtitle = models.CharField(max_length=300, blank=True, default="")
+    featured_subjects = models.JSONField(default=list, blank=True)
+    programs_overview = models.TextField(blank=True, default="")
+    grade_levels_offered = models.JSONField(default=list, blank=True)
+    
+    # Section 5: Admissions
+    admissions_section_enabled = models.BooleanField(default=True)
+    admissions_section_title = models.CharField(max_length=200, blank=True, default="")
+    admissions_section_subtitle = models.CharField(max_length=300, blank=True, default="")
+    current_application_window_info = models.TextField(blank=True, default="")
+    admission_requirements = models.JSONField(default=list, blank=True)
+    application_button_text = models.CharField(max_length=100, blank=True, default="Apply Now")
+    application_button_link = models.URLField(blank=True, default="")
+    admission_timeline = models.JSONField(default=dict, blank=True)
+    
+    # Section 6: Leadership
+    leadership_section_enabled = models.BooleanField(default=True)
+    leadership_section_title = models.CharField(max_length=200, blank=True, default="Our Leadership")
+    principal_message_enabled = models.BooleanField(default=True)
+    featured_staff_count = models.IntegerField(default=5)
+    staff_directory_link = models.URLField(blank=True, default="")
+    
+    # Section 7: Testimonials
+    testimonials_section_enabled = models.BooleanField(default=True)
+    testimonials_section_title = models.CharField(max_length=200, blank=True, default="What Our Community Says")
+    testimonials_section_subtitle = models.CharField(max_length=300, blank=True, default="")
+    testimonials_list = models.JSONField(default=list, blank=True)
+    success_stories_enabled = models.BooleanField(default=True)
+    success_stories = models.JSONField(default=list, blank=True)
+    
+    # Section 8: News
+    news_max_display = models.IntegerField(default=3)
+    news_categories = models.JSONField(default=list, blank=True)
+    
+    # Section 9: Facilities
+    facilities_section_enabled = models.BooleanField(default=True)
+    facilities_section_title = models.CharField(max_length=200, blank=True, default="Our Facilities")
+    facilities_list = models.JSONField(default=list, blank=True)
+    campus_gallery_enabled = models.BooleanField(default=True)
+    campus_gallery_photos = models.JSONField(default=list, blank=True)
+    
+    # Section 10: Fundraising
+    fundraising_section_enabled = models.BooleanField(default=False)
+    fundraising_section_title = models.CharField(max_length=200, blank=True, default="Support Our Mission")
+    featured_fundraisers_count = models.IntegerField(default=3)
+    donation_call_to_action_text = models.CharField(max_length=200, blank=True, default="")
+    donation_call_to_action_link = models.URLField(blank=True, default="")
+    
+    # Section 11: Accreditations
+    accreditations_section_enabled = models.BooleanField(default=True)
+    accreditations_section_title = models.CharField(max_length=200, blank=True, default="Accreditations")
+    accreditations_list = models.JSONField(default=list, blank=True)
+    
+    # Section 12: Contact
+    contact_section_enabled = models.BooleanField(default=True)
+    footer_title = models.CharField(max_length=200, blank=True, default="Get In Touch")
+    footer_description = models.TextField(blank=True, default="")
+    display_contact_form = models.BooleanField(default=True)
+    map_location_embed_url = models.URLField(blank=True, default="")
+    office_hours = models.JSONField(default=dict, blank=True)
+    quick_links = models.JSONField(default=list, blank=True)
+    
+    # Section 13: Social Media
+    social_media_links = models.JSONField(default=dict, blank=True)
+    share_enabled = models.BooleanField(default=True)
+    whatsapp_number = models.CharField(max_length=20, blank=True, default="")
+    whatsapp_enabled = models.BooleanField(default=False)
+    
+    # Section 14: SEO
+    meta_title = models.CharField(max_length=60, blank=True, default="")
+    meta_description = models.CharField(max_length=160, blank=True, default="")
+    meta_keywords = models.CharField(max_length=200, blank=True, default="")
+    og_title = models.CharField(max_length=100, blank=True, default="")
+    og_description = models.CharField(max_length=160, blank=True, default="")
+    og_image = models.ImageField(upload_to="homepage/og/", null=True, blank=True)
+    canonical_url = models.URLField(blank=True, default="")
+    
+    # Section 15: CTAs
+    secondary_cta_section_enabled = models.BooleanField(default=False)
+    secondary_cta_title = models.CharField(max_length=200, blank=True, default="")
+    secondary_cta_description = models.TextField(blank=True, default="")
+    secondary_cta_button_text = models.CharField(max_length=100, blank=True, default="")
+    secondary_cta_button_link = models.URLField(blank=True, default="")
+    secondary_cta_image = models.ImageField(upload_to="homepage/cta/", null=True, blank=True)
+    tertiary_cta_enabled = models.BooleanField(default=False)
+    tertiary_cta_title = models.CharField(max_length=200, blank=True, default="")
+    tertiary_cta_description = models.TextField(blank=True, default="")
+    tertiary_cta_button_text = models.CharField(max_length=100, blank=True, default="")
+    tertiary_cta_button_link = models.URLField(blank=True, default="")
+    
+    # Section 16: Events
+    events_section_enabled = models.BooleanField(default=True)
+    events_section_title = models.CharField(max_length=200, blank=True, default="Upcoming Events")
+    upcoming_events_count = models.IntegerField(default=3)
+    link_to_full_calendar = models.URLField(blank=True, default="")
+    
+    # Section 17: Achievements
+    achievements_section_enabled = models.BooleanField(default=True)
+    achievements_section_title = models.CharField(max_length=200, blank=True, default="Our Achievements")
+    exam_performance_enabled = models.BooleanField(default=True)
+    university_placements_enabled = models.BooleanField(default=True)
+    awards_recognitions_list = models.JSONField(default=list, blank=True)
+    
+    # Section 18: Admin Controls
+    sections_display_order = models.JSONField(default=list, blank=True)
+    maintenance_mode_enabled = models.BooleanField(default=False)
+    maintenance_mode_message = models.TextField(blank=True, default="")
+    show_beta_features = models.BooleanField(default=False)
+    homepage_theme = models.CharField(max_length=20, choices=[("light", "Light"), ("dark", "Dark"), ("custom", "Custom")], default="light")
+    custom_css = models.TextField(blank=True, default="")
 
     # ── Site branding (nav, footer, login, dashboard) ────────────────────
     logo_upload = models.ImageField(upload_to="homepage/logo/", null=True, blank=True)

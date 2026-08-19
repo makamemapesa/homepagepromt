@@ -9,493 +9,906 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { CheckCircle2, ExternalLink, Loader2, Plus, Trash2 } from "lucide-react"
-import Link from "next/link"
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
-
-/** Field spec for the repeatable list editors below. */
-type ListField = { key: string; label: string; type?: "text" | "textarea" | "icon" }
-
-const ICON_CHOICES = [
-  "book", "heart", "users", "shield", "globe", "award", "star", "sparkles", "graduation", "check",
-]
-
-/** Every content block, grouped into the tabs the editor shows. */
-const TEXT_FIELDS: Record<string, { key: string; label: string; area?: boolean }[]> = {
-  branding: [
-    { key: "school_name", label: "School name" },
-    { key: "tagline", label: "Tagline (shown under the name)" },
-    { key: "logo_url", label: "Logo image URL (used when no file is uploaded)" },
-  ],
-  hero: [
-    { key: "hero_badge_text", label: "Badge text (when admissions are closed)" },
-    { key: "hero_title", label: "Headline" },
-    { key: "hero_subtitle", label: "Sub-headline" },
-    { key: "hero_description", label: "Description", area: true },
-    { key: "hero_primary_cta", label: "Primary button label" },
-    { key: "hero_secondary_cta", label: "Secondary button label" },
-    { key: "hero_image", label: "Background image URL" },
-    { key: "hero_video_url", label: "Video embed URL" },
-  ],
-  about: [
-    { key: "about_label", label: "Section label" },
-    { key: "about_title", label: "Title" },
-  ],
-  support: [
-    { key: "support_label", label: "Section label" },
-    { key: "support_title", label: "Title" },
-    { key: "support_description", label: "Description", area: true },
-    { key: "support_cta", label: "Button label" },
-  ],
-  programs: [
-    { key: "programs_label", label: "Section label" },
-    { key: "programs_title", label: "Title" },
-  ],
-  features: [
-    { key: "features_label", label: "Section label" },
-    { key: "features_title", label: "Title" },
-    { key: "features_description", label: "Description", area: true },
-    { key: "features_badge_title", label: "Accreditation badge title" },
-    { key: "features_badge_subtitle", label: "Accreditation badge subtitle" },
-  ],
-  purpose: [
-    { key: "purpose_label", label: "Section label" },
-    { key: "purpose_title", label: "Section title" },
-    { key: "vision_title", label: "Vision title" },
-    { key: "vision_description", label: "Vision text", area: true },
-    { key: "mission_title", label: "Mission title" },
-    { key: "mission_description", label: "Mission text", area: true },
-  ],
-  gallery: [
-    { key: "gallery_label", label: "Section label" },
-    { key: "gallery_title", label: "Title" },
-  ],
-  admissions: [
-    { key: "admissions_label", label: "Section label" },
-    { key: "admissions_title", label: "Title" },
-    { key: "admissions_description", label: "Description", area: true },
-    { key: "admissions_cta", label: "Button label" },
-  ],
-  news: [
-    { key: "news_section_title", label: "Section title" },
-    { key: "news_section_subtitle", label: "Section subtitle", area: true },
-  ],
-  contact: [
-    { key: "contact_label", label: "Section label" },
-    { key: "contact_area", label: "Campus area" },
-    { key: "contact_region", label: "Region / country" },
-    { key: "contact_hours", label: "Office hours" },
-    { key: "contact_registration_line", label: "Registration line" },
-  ],
-  footer: [
-    { key: "footer_established", label: "Location & established line" },
-    { key: "footer_description", label: "Footer description", area: true },
-    { key: "footer_copyright", label: "Copyright line" },
-  ],
+function SavedBanner() {
+  return (
+    <div className="flex items-center gap-2 text-sm text-accent">
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M5 13l4 4L19 7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      <span>Saved</span>
+    </div>
+  )
 }
 
-const LIST_SPECS: Record<string, ListField[]> = {
-  hero_stats: [{ key: "value", label: "Value" }, { key: "label", label: "Label" }],
-  credentials: [{ key: "label", label: "Label" }, { key: "value", label: "Value" }],
-  support_stats: [{ key: "value", label: "Value" }, { key: "label", label: "Label" }],
-  stats_banner: [{ key: "value", label: "Value" }, { key: "label", label: "Label" }, { key: "sub", label: "Sub-text" }],
-  programs: [
-    { key: "number", label: "Number" }, { key: "level", label: "Level" },
-    { key: "ages", label: "Stage" }, { key: "phone", label: "Phone" },
-    { key: "image", label: "Image URL" }, { key: "description", label: "Description", type: "textarea" },
-  ],
-  features: [
-    { key: "icon", label: "Icon", type: "icon" }, { key: "title", label: "Title" },
-    { key: "description", label: "Description", type: "textarea" },
-  ],
-  gallery: [{ key: "image", label: "Image URL" }, { key: "caption", label: "Caption" }],
-  contact_phones: [{ key: "label", label: "Label" }, { key: "value", label: "Number" }],
-  news_cards: [
-    { key: "title", label: "Headline" }, { key: "category", label: "Category" },
-    { key: "date", label: "Date" }, { key: "image", label: "Image URL" },
-    { key: "excerpt", label: "Excerpt", type: "textarea" },
-  ],
+interface SectionProps {
+  title: string
+  description?: string
+  children: React.ReactNode
 }
 
-const STRING_LISTS = ["about_paragraphs", "about_highlights", "admission_levels", "footer_registration_lines"]
-const OBJECT_LISTS = Object.keys(LIST_SPECS)
+function Section({ title, description, children }: SectionProps) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-6 space-y-4">
+      <div>
+        <h3 className="text-lg font-semibold">{title}</h3>
+        {description && <p className="text-sm text-muted-foreground mt-1">{description}</p>}
+      </div>
+      <div className="space-y-4">{children}</div>
+    </div>
+  )
+}
+
+interface HomepageContent {
+  [key: string]: any
+}
 
 export default function HomepageEditorPage() {
   const { user, loading: authLoading } = useUser()
   const router = useRouter()
-  const [content, setContent] = useState<Record<string, any>>({})
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
-  const [error, setError] = useState("")
-  const [logoFile, setLogoFile] = useState<File | null>(null)
-  const [heroImageFile, setHeroImageFile] = useState<File | null>(null)
-  const [heroVideoFile, setHeroVideoFile] = useState<File | null>(null)
-  const [logoPreview, setLogoPreview] = useState("")
 
   useEffect(() => {
     if (!authLoading && user && !["super_admin", "admin"].includes(user.role)) router.replace("/dashboard")
   }, [user, authLoading, router])
 
-  const load = () => {
-    // Read with a plain fetch so the payload keeps the snake_case keys the API
-    // stores — the editor then sends back exactly what it received.
-    fetch(`${BASE_URL}/api/homepage-content/`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (d) {
-          setContent(d)
-          setLogoPreview(d.logo || "")
-        }
+  const [loading, setLoading] = useState(true)
+  const [saved, setSaved] = useState<string | null>(null)
+  const [formData, setFormData] = useState<HomepageContent>({})
+
+  useEffect(() => {
+    api.get("/api/homepage-content/")
+      .then((r) => {
+        setFormData(r.data || {})
       })
-      .catch(() => setError("Could not load the homepage content."))
+      .catch(() => {})
       .finally(() => setLoading(false))
+  }, [])
+
+  const updateField = (field: string, value: any) => {
+    setFormData(prev => ({ ...prev, [field]: value }))
   }
 
-  useEffect(load, [])
-
-  if (authLoading || !user || !["super_admin", "admin"].includes(user.role)) return null
-
-  const set = (key: string, value: any) => {
-    setContent((prev) => ({ ...prev, [key]: value }))
-    setSaved(false)
+  const updateNestedField = (parent: string, field: string, value: any) => {
+    setFormData(prev => ({
+      ...prev,
+      [parent]: {
+        ...prev[parent],
+        [field]: value
+      }
+    }))
   }
-
-  const setListItem = (key: string, index: number, field: string, value: any) =>
-    set(key, (content[key] || []).map((row: any, i: number) => (i === index ? { ...row, [field]: value } : row)))
-
-  const addListItem = (key: string, blank: any) => set(key, [...(content[key] || []), blank])
-  const removeListItem = (key: string, index: number) =>
-    set(key, (content[key] || []).filter((_: any, i: number) => i !== index))
 
   const save = () => {
-    setSaving(true)
-    setError("")
-    const form = new FormData()
+    if (!user || !["super_admin", "admin"].includes(user.role)) return
 
-    Object.values(TEXT_FIELDS).flat().forEach(({ key }) => {
-      form.append(key, content[key] ?? "")
+    const submitData = new FormData()
+    Object.entries(formData).forEach(([key, value]) => {
+      if (value instanceof File) {
+        submitData.append(key, value)
+      } else if (typeof value === 'object' && value !== null) {
+        submitData.append(key, JSON.stringify(value))
+      } else {
+        submitData.append(key, String(value || ''))
+      }
     })
-    STRING_LISTS.forEach((key) => {
-      const rows = (content[key] || []).map((v: string) => (v ?? "").toString()).filter(Boolean)
-      form.append(key, JSON.stringify(rows))
-    })
-    OBJECT_LISTS.forEach((key) => {
-      form.append(key, JSON.stringify(content[key] || []))
-    })
-    form.append("featured_news_post", JSON.stringify(content.featured_news_post || {}))
-    if (logoFile) form.append("logo_upload", logoFile)
-    if (heroImageFile) form.append("hero_image_upload", heroImageFile)
-    if (heroVideoFile) form.append("hero_video_upload", heroVideoFile)
 
-    api.patch("/api/homepage-content/", form)
-      .then(() => {
-        setSaved(true)
-        setLogoFile(null); setHeroImageFile(null); setHeroVideoFile(null)
-        load()
-        setTimeout(() => setSaved(false), 4000)
-      })
-      .catch((e) => {
-        const data = e?.response?.data
-        const first = data && typeof data === "object" ? Object.entries(data)[0] : null
-        setError(first ? `${first[0]}: ${Array.isArray(first[1]) ? first[1][0] : first[1]}` : "Could not save. Please try again.")
-      })
-      .finally(() => setSaving(false))
+    api.patch("/api/homepage-content/", submitData).then(() => {
+      setSaved("ok")
+      setTimeout(() => setSaved(null), 2500)
+    }).catch((err) => {
+      console.error('Save error:', err)
+    })
   }
 
-  const TextFields = ({ group }: { group: string }) => (
-    <div className="grid gap-4 md:grid-cols-2">
-      {TEXT_FIELDS[group].map((f) => (
-        <div key={f.key} className={`flex flex-col gap-1.5 ${f.area ? "md:col-span-2" : ""}`}>
-          <Label>{f.label}</Label>
-          {f.area ? (
-            <Textarea rows={3} value={content[f.key] ?? ""} onChange={(e) => set(f.key, e.target.value)} />
-          ) : (
-            <Input value={content[f.key] ?? ""} onChange={(e) => set(f.key, e.target.value)} />
-          )}
-        </div>
-      ))}
-    </div>
-  )
-
-  const StringList = ({ name, label, placeholder }: { name: string; label: string; placeholder?: string }) => (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <Label>{label}</Label>
-        <Button type="button" variant="outline" size="sm" onClick={() => addListItem(name, "")}>
-          <Plus className="mr-1 h-3.5 w-3.5" /> Add
-        </Button>
-      </div>
-      {(content[name] || []).map((value: string, i: number) => (
-        <div key={i} className="flex items-start gap-2">
-          <Textarea
-            rows={2}
-            placeholder={placeholder}
-            value={value ?? ""}
-            onChange={(e) => set(name, (content[name] || []).map((v: string, idx: number) => (idx === i ? e.target.value : v)))}
-          />
-          <Button type="button" variant="ghost" size="icon" className="mt-1 text-destructive"
-            onClick={() => removeListItem(name, i)}>
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
-      ))}
-      {(content[name] || []).length === 0 && (
-        <p className="text-xs text-muted-foreground">Nothing yet — the page shows its built-in text until you add some.</p>
-      )}
-    </div>
-  )
-
-  const ObjectList = ({ name, label, itemName }: { name: string; label: string; itemName: string }) => {
-    const spec = LIST_SPECS[name]
-    const blank = Object.fromEntries(spec.map((f) => [f.key, ""]))
-    return (
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <Label>{label}</Label>
-          <Button type="button" variant="outline" size="sm" onClick={() => addListItem(name, blank)}>
-            <Plus className="mr-1 h-3.5 w-3.5" /> Add {itemName}
-          </Button>
-        </div>
-        {(content[name] || []).map((row: any, i: number) => (
-          <div key={i} className="relative rounded-lg border border-border p-4">
-            <button type="button" onClick={() => removeListItem(name, i)}
-              className="absolute right-3 top-3 text-muted-foreground hover:text-destructive">
-              <Trash2 className="h-4 w-4" />
-            </button>
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {itemName} {i + 1}
-            </p>
-            <div className="grid gap-3 md:grid-cols-2">
-              {spec.map((f) => (
-                <div key={f.key} className={`flex flex-col gap-1.5 ${f.type === "textarea" ? "md:col-span-2" : ""}`}>
-                  <Label className="text-xs">{f.label}</Label>
-                  {f.type === "textarea" ? (
-                    <Textarea rows={2} value={row[f.key] ?? ""} onChange={(e) => setListItem(name, i, f.key, e.target.value)} />
-                  ) : f.type === "icon" ? (
-                    <Select value={row[f.key] || "award"} onValueChange={(v) => setListItem(name, i, f.key, v)}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {ICON_CHOICES.map((icon) => <SelectItem key={icon} value={icon}>{icon}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input value={row[f.key] ?? ""} onChange={(e) => setListItem(name, i, f.key, e.target.value)} />
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-        {(content[name] || []).length === 0 && (
-          <p className="text-xs text-muted-foreground">Nothing yet — the page shows its built-in items until you add some.</p>
-        )}
-      </div>
-    )
-  }
-
-  const Section = ({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) => (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{title}</CardTitle>
-        {description && <CardDescription>{description}</CardDescription>}
-      </CardHeader>
-      <CardContent className="space-y-5">{children}</CardContent>
-    </Card>
-  )
-
-  if (loading) {
-    return (
-      <>
-        <DashboardHeader title="Homepage" description="Manage everything shown on the public website." />
-        <div className="p-6 text-sm text-muted-foreground">Loading…</div>
-      </>
-    )
-  }
+  if (authLoading || loading) return null
 
   return (
-    <>
-      <DashboardHeader
-        title="Homepage"
-        description="Manage everything shown on the public website. Changes go live as soon as you save."
-      />
+    <div className="flex flex-col gap-6 p-4 md:p-6">
+      <DashboardHeader title="Homepage" description="Manage all homepage content sections and settings." />
 
-      <div className="p-4 md:p-6 space-y-4">
-        {/* Save bar */}
-        <div className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card/95 px-4 py-3 backdrop-blur">
-          <div className="flex items-center gap-3">
-            <Button onClick={save} disabled={saving}>
-              {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving…</> : "Save changes"}
-            </Button>
-            {saved && (
-              <span className="flex items-center gap-1.5 text-sm text-accent">
-                <CheckCircle2 className="h-4 w-4" /> Saved — the site is updated
-              </span>
+      <div className="space-y-6">
+        {/* Section 1: Hero/Banner */}
+        <Section title="Hero Section" description="Main banner at the top of the homepage">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label>Hero Title</Label>
+              <Input value={formData.heroTitle || ""} onChange={(e) => updateField("heroTitle", e.target.value)} />
+            </div>
+            <div>
+              <Label>Hero Subtitle</Label>
+              <Input value={formData.heroSubtitle || ""} onChange={(e) => updateField("heroSubtitle", e.target.value)} />
+            </div>
+            <div className="md:col-span-2">
+              <Label>Hero Description</Label>
+              <Textarea rows={3} value={formData.heroDescription || ""} onChange={(e) => updateField("heroDescription", e.target.value)} />
+            </div>
+            <div>
+              <Label>Primary CTA Text</Label>
+              <Input value={formData.heroPrimaryCta || ""} onChange={(e) => updateField("heroPrimaryCta", e.target.value)} />
+            </div>
+            <div>
+              <Label>Primary CTA Link</Label>
+              <Input value={formData.heroPrimaryClaLink || ""} onChange={(e) => updateField("heroPrimaryCtaLink", e.target.value)} placeholder="https://..." />
+            </div>
+            <div>
+              <Label>Secondary CTA Text</Label>
+              <Input value={formData.heroSecondaryCta || ""} onChange={(e) => updateField("heroSecondaryCta", e.target.value)} />
+            </div>
+            <div>
+              <Label>Secondary CTA Link</Label>
+              <Input value={formData.heroSecondaryCtaLink || ""} onChange={(e) => updateField("heroSecondaryCtaLink", e.target.value)} placeholder="https://..." />
+            </div>
+            <div>
+              <Label>Hero Video URL</Label>
+              <Input value={formData.heroVideoUrl || ""} onChange={(e) => updateField("heroVideoUrl", e.target.value)} placeholder="https://www.youtube.com/embed/..." />
+            </div>
+            <div>
+              <Label>Background Color</Label>
+              <Input type="color" value={formData.heroBackgroundColor || "#ffffff"} onChange={(e) => updateField("heroBackgroundColor", e.target.value)} />
+            </div>
+            <div>
+              <Label>Hero Image URL</Label>
+              <Input value={formData.heroImage || ""} onChange={(e) => updateField("heroImage", e.target.value)} placeholder="https://..." />
+            </div>
+            <div>
+              <Label>Hero Image Upload</Label>
+              <input type="file" accept="image/*" onChange={(e) => updateField("heroImageUpload", e.target.files?.[0] || null)} className="block w-full text-sm text-muted-foreground" />
+            </div>
+            <div>
+              <Label>Hero Video Upload</Label>
+              <input type="file" accept="video/*" onChange={(e) => updateField("heroVideoUpload", e.target.files?.[0] || null)} className="block w-full text-sm text-muted-foreground" />
+            </div>
+            <div className="md:col-span-2">
+              <Label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.announcementBannerEnabled || false} onChange={(e) => updateField("announcementBannerEnabled", e.target.checked)} />
+                Enable Announcement Banner
+              </Label>
+            </div>
+            {formData.announcementBannerEnabled && (
+              <div className="md:col-span-2">
+                <Label>Announcement Banner Text</Label>
+                <Input value={formData.announcementBannerText || ""} onChange={(e) => updateField("announcementBannerText", e.target.value)} />
+              </div>
             )}
-            {error && <span className="text-sm text-destructive">{error}</span>}
           </div>
-          <Link href="/" target="_blank">
-            <Button variant="outline" size="sm">
-              View live homepage <ExternalLink className="ml-2 h-3.5 w-3.5" />
-            </Button>
-          </Link>
+        </Section>
+
+        {/* Section 2: Statistics */}
+        <Section title="Statistics Section" description="Key school statistics">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.showStatisticsSection || false} onChange={(e) => updateField("showStatisticsSection", e.target.checked)} />
+                Show Statistics Section
+              </Label>
+            </div>
+            <div>
+              <Label>Total Students</Label>
+              <Input type="number" value={formData.totalStudents || 0} onChange={(e) => updateField("totalStudents", parseInt(e.target.value) || 0)} />
+            </div>
+            <div>
+              <Label>Total Teachers</Label>
+              <Input type="number" value={formData.totalTeachers || 0} onChange={(e) => updateField("totalTeachers", parseInt(e.target.value) || 0)} />
+            </div>
+            <div>
+              <Label>Established Year</Label>
+              <Input type="number" value={formData.establishedYear || 2020} onChange={(e) => updateField("establishedYear", parseInt(e.target.value) || 2020)} />
+            </div>
+            <div>
+              <Label>Academic Programs Count</Label>
+              <Input type="number" value={formData.academicProgramsCount || 3} onChange={(e) => updateField("academicProgramsCount", parseInt(e.target.value) || 3)} />
+            </div>
+            <div>
+              <Label>Custom Label 1</Label>
+              <Input value={formData.statisticsCustomLabel1 || ""} onChange={(e) => updateField("statisticsCustomLabel1", e.target.value)} />
+            </div>
+            <div>
+              <Label>Custom Value 1</Label>
+              <Input value={formData.statisticsCustomValue1 || ""} onChange={(e) => updateField("statisticsCustomValue1", e.target.value)} />
+            </div>
+            <div>
+              <Label>Custom Label 2</Label>
+              <Input value={formData.statisticsCustomLabel2 || ""} onChange={(e) => updateField("statisticsCustomLabel2", e.target.value)} />
+            </div>
+            <div>
+              <Label>Custom Value 2</Label>
+              <Input value={formData.statisticsCustomValue2 || ""} onChange={(e) => updateField("statisticsCustomValue2", e.target.value)} />
+            </div>
+          </div>
+        </Section>
+
+        {/* Section 3: About */}
+        <Section title="About School" description="School information and highlights">
+          <div className="grid grid-cols-1 gap-4">
+            <div>
+              <Label>About Title</Label>
+              <Input value={formData.aboutTitle || ""} onChange={(e) => updateField("aboutTitle", e.target.value)} />
+            </div>
+            <div>
+              <Label>About Description</Label>
+              <Textarea rows={4} value={formData.aboutDescription || ""} onChange={(e) => updateField("aboutDescription", e.target.value)} />
+            </div>
+            <div>
+              <Label>About Highlights (JSON array)</Label>
+              <Textarea rows={3} value={typeof formData.aboutHighlights === 'string' ? formData.aboutHighlights : JSON.stringify(formData.aboutHighlights || [])} onChange={(e) => {
+                try {
+                  updateField("aboutHighlights", JSON.parse(e.target.value))
+                } catch {
+                  updateField("aboutHighlights", e.target.value)
+                }
+              }} placeholder='["Highlight 1", "Highlight 2"]' />
+            </div>
+            <div>
+              <Label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.whyChooseUsSectionEnabled || false} onChange={(e) => updateField("whyChooseUsSectionEnabled", e.target.checked)} />
+                Enable "Why Choose Us" Section
+              </Label>
+            </div>
+            {formData.whyChooseUsSectionEnabled && (
+              <div>
+                <Label>Why Choose Us Points (JSON)</Label>
+                <Textarea rows={3} value={typeof formData.whyChooseUsPoints === 'string' ? formData.whyChooseUsPoints : JSON.stringify(formData.whyChooseUsPoints || [])} onChange={(e) => {
+                  try {
+                    updateField("whyChooseUsPoints", JSON.parse(e.target.value))
+                  } catch {
+                    updateField("whyChooseUsPoints", e.target.value)
+                  }
+                }} placeholder='[{"title": "", "description": ""}]' />
+              </div>
+            )}
+            <div>
+              <Label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.schoolStorySectionEnabled || false} onChange={(e) => updateField("schoolStorySectionEnabled", e.target.checked)} />
+                Enable School Story Section
+              </Label>
+            </div>
+            {formData.schoolStorySectionEnabled && (
+              <>
+                <div>
+                  <Label>School Story Title</Label>
+                  <Input value={formData.schoolStoryTitle || ""} onChange={(e) => updateField("schoolStoryTitle", e.target.value)} />
+                </div>
+                <div>
+                  <Label>School Story Description</Label>
+                  <Textarea rows={3} value={formData.schoolStoryDescription || ""} onChange={(e) => updateField("schoolStoryDescription", e.target.value)} />
+                </div>
+                <div>
+                  <Label>School Story Image</Label>
+                  <input type="file" accept="image/*" onChange={(e) => updateField("schoolStoryImage", e.target.files?.[0] || null)} className="block w-full text-sm text-muted-foreground" />
+                </div>
+              </>
+            )}
+          </div>
+        </Section>
+
+        {/* Section 4: Academics */}
+        <Section title="Academics & Programs" description="Academic sections and programs">
+          <div className="grid grid-cols-1 gap-4">
+            <div>
+              <Label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.academicsSectionEnabled || false} onChange={(e) => updateField("academicsSectionEnabled", e.target.checked)} />
+                Enable Academics Section
+              </Label>
+            </div>
+            {formData.academicsSectionEnabled && (
+              <>
+                <div>
+                  <Label>Academics Section Title</Label>
+                  <Input value={formData.academicsSectionTitle || ""} onChange={(e) => updateField("academicsSectionTitle", e.target.value)} />
+                </div>
+                <div>
+                  <Label>Academics Section Subtitle</Label>
+                  <Input value={formData.academicsSectionSubtitle || ""} onChange={(e) => updateField("academicsSectionSubtitle", e.target.value)} />
+                </div>
+                <div>
+                  <Label>Featured Subjects (JSON array)</Label>
+                  <Textarea rows={2} value={typeof formData.featuredSubjects === 'string' ? formData.featuredSubjects : JSON.stringify(formData.featuredSubjects || [])} onChange={(e) => {
+                    try {
+                      updateField("featuredSubjects", JSON.parse(e.target.value))
+                    } catch {
+                      updateField("featuredSubjects", e.target.value)
+                    }
+                  }} placeholder='["Math", "Science", "English"]' />
+                </div>
+                <div>
+                  <Label>Programs Overview</Label>
+                  <Textarea rows={3} value={formData.programsOverview || ""} onChange={(e) => updateField("programsOverview", e.target.value)} />
+                </div>
+                <div>
+                  <Label>Grade Levels Offered (JSON array)</Label>
+                  <Textarea rows={2} value={typeof formData.gradeLevelsOffered === 'string' ? formData.gradeLevelsOffered : JSON.stringify(formData.gradeLevelsOffered || [])} onChange={(e) => {
+                    try {
+                      updateField("gradeLevelsOffered", JSON.parse(e.target.value))
+                    } catch {
+                      updateField("gradeLevelsOffered", e.target.value)
+                    }
+                  }} placeholder='["Nursery", "Primary", "Secondary"]' />
+                </div>
+              </>
+            )}
+          </div>
+        </Section>
+
+        {/* Section 5: Admissions */}
+        <Section title="Admissions" description="Application and admission information">
+          <div className="grid grid-cols-1 gap-4">
+            <div>
+              <Label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.admissionsSectionEnabled || false} onChange={(e) => updateField("admissionsSectionEnabled", e.target.checked)} />
+                Enable Admissions Section
+              </Label>
+            </div>
+            {formData.admissionsSectionEnabled && (
+              <>
+                <div>
+                  <Label>Admissions Title</Label>
+                  <Input value={formData.admissionsSectionTitle || ""} onChange={(e) => updateField("admissionsSectionTitle", e.target.value)} />
+                </div>
+                <div>
+                  <Label>Admissions Subtitle</Label>
+                  <Input value={formData.admissionsSectionSubtitle || ""} onChange={(e) => updateField("admissionsSectionSubtitle", e.target.value)} />
+                </div>
+                <div>
+                  <Label>Current Application Window Info</Label>
+                  <Textarea rows={2} value={formData.currentApplicationWindowInfo || ""} onChange={(e) => updateField("currentApplicationWindowInfo", e.target.value)} />
+                </div>
+                <div>
+                  <Label>Admission Requirements (JSON array)</Label>
+                  <Textarea rows={2} value={typeof formData.admissionRequirements === 'string' ? formData.admissionRequirements : JSON.stringify(formData.admissionRequirements || [])} onChange={(e) => {
+                    try {
+                      updateField("admissionRequirements", JSON.parse(e.target.value))
+                    } catch {
+                      updateField("admissionRequirements", e.target.value)
+                    }
+                  }} placeholder='["Birth certificate", "Passport", "Academic records"]' />
+                </div>
+                <div>
+                  <Label>Application Button Text</Label>
+                  <Input value={formData.applicationButtonText || "Apply Now"} onChange={(e) => updateField("applicationButtonText", e.target.value)} />
+                </div>
+                <div>
+                  <Label>Application Button Link</Label>
+                  <Input value={formData.applicationButtonLink || ""} onChange={(e) => updateField("applicationButtonLink", e.target.value)} placeholder="https://..." />
+                </div>
+                <div>
+                  <Label>Admission Timeline (JSON)</Label>
+                  <Textarea rows={2} value={typeof formData.admissionTimeline === 'string' ? formData.admissionTimeline : JSON.stringify(formData.admissionTimeline || {})} onChange={(e) => {
+                    try {
+                      updateField("admissionTimeline", JSON.parse(e.target.value))
+                    } catch {
+                      updateField("admissionTimeline", e.target.value)
+                    }
+                  }} placeholder='{"January": "Applications open", "March": "Interviews"}' />
+                </div>
+              </>
+            )}
+          </div>
+        </Section>
+
+        {/* Section 6: Leadership */}
+        <Section title="Leadership & Team" description="Leadership and staff information">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.leadershipSectionEnabled || false} onChange={(e) => updateField("leadershipSectionEnabled", e.target.checked)} />
+                Enable Leadership Section
+              </Label>
+            </div>
+            <div>
+              <Label>Leadership Section Title</Label>
+              <Input value={formData.leadershipSectionTitle || "Our Leadership"} onChange={(e) => updateField("leadershipSectionTitle", e.target.value)} />
+            </div>
+            <div>
+              <Label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.principalMessageEnabled || false} onChange={(e) => updateField("principalMessageEnabled", e.target.checked)} />
+                Enable Principal's Message
+              </Label>
+            </div>
+            <div>
+              <Label>Featured Staff Count</Label>
+              <Input type="number" value={formData.featuredStaffCount || 5} onChange={(e) => updateField("featuredStaffCount", parseInt(e.target.value) || 5)} />
+            </div>
+            <div className="md:col-span-2">
+              <Label>Staff Directory Link</Label>
+              <Input value={formData.staffDirectoryLink || ""} onChange={(e) => updateField("staffDirectoryLink", e.target.value)} placeholder="https://..." />
+            </div>
+          </div>
+        </Section>
+
+        {/* Section 7: Testimonials */}
+        <Section title="Testimonials & Success Stories" description="Student and parent feedback">
+          <div className="grid grid-cols-1 gap-4">
+            <div>
+              <Label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.testimonialsSectionEnabled || false} onChange={(e) => updateField("testimonialsSectionEnabled", e.target.checked)} />
+                Enable Testimonials Section
+              </Label>
+            </div>
+            {formData.testimonialsSectionEnabled && (
+              <>
+                <div>
+                  <Label>Testimonials Title</Label>
+                  <Input value={formData.testimonialsSectionTitle || "What Our Community Says"} onChange={(e) => updateField("testimonialsSectionTitle", e.target.value)} />
+                </div>
+                <div>
+                  <Label>Testimonials Subtitle</Label>
+                  <Input value={formData.testimonialsSectionSubtitle || ""} onChange={(e) => updateField("testimonialsSectionSubtitle", e.target.value)} />
+                </div>
+                <div>
+                  <Label>Testimonials (JSON)</Label>
+                  <Textarea rows={3} value={typeof formData.testimonialsList === 'string' ? formData.testimonialsList : JSON.stringify(formData.testimonialsList || [])} onChange={(e) => {
+                    try {
+                      updateField("testimonialsList", JSON.parse(e.target.value))
+                    } catch {
+                      updateField("testimonialsList", e.target.value)
+                    }
+                  }} placeholder='[{"text": "", "author": "", "role": ""}]' />
+                </div>
+              </>
+            )}
+            <div>
+              <Label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.successStoriesEnabled || false} onChange={(e) => updateField("successStoriesEnabled", e.target.checked)} />
+                Enable Success Stories
+              </Label>
+            </div>
+            {formData.successStoriesEnabled && (
+              <div>
+                <Label>Success Stories (JSON)</Label>
+                <Textarea rows={3} value={typeof formData.successStories === 'string' ? formData.successStories : JSON.stringify(formData.successStories || [])} onChange={(e) => {
+                  try {
+                    updateField("successStories", JSON.parse(e.target.value))
+                  } catch {
+                    updateField("successStories", e.target.value)
+                  }
+                }} placeholder='[{"title": "", "description": ""}]' />
+              </div>
+            )}
+          </div>
+        </Section>
+
+        {/* Section 8: News */}
+        <Section title="News & Updates" description="News articles and announcements">
+          <div className="grid grid-cols-1 gap-4">
+            <div>
+              <Label>News Section Title</Label>
+              <Input value={formData.newsSectionTitle || "News & Updates"} onChange={(e) => updateField("newsSectionTitle", e.target.value)} />
+            </div>
+            <div>
+              <Label>News Section Subtitle</Label>
+              <Input value={formData.newsSectionSubtitle || ""} onChange={(e) => updateField("newsSectionSubtitle", e.target.value)} />
+            </div>
+            <div>
+              <Label>Max News Items to Display</Label>
+              <Input type="number" value={formData.newsMaxDisplay || 3} onChange={(e) => updateField("newsMaxDisplay", parseInt(e.target.value) || 3)} />
+            </div>
+            <div>
+              <Label>News Categories (JSON array)</Label>
+              <Textarea rows={2} value={typeof formData.newsCategories === 'string' ? formData.newsCategories : JSON.stringify(formData.newsCategories || [])} onChange={(e) => {
+                try {
+                  updateField("newsCategories", JSON.parse(e.target.value))
+                } catch {
+                  updateField("newsCategories", e.target.value)
+                }
+              }} placeholder='["Announcements", "Achievements", "Events"]' />
+            </div>
+          </div>
+        </Section>
+
+        {/* Section 9: Facilities */}
+        <Section title="Facilities & Campus" description="School facilities and campus gallery">
+          <div className="grid grid-cols-1 gap-4">
+            <div>
+              <Label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.facilitiesSectionEnabled || false} onChange={(e) => updateField("facilitiesSectionEnabled", e.target.checked)} />
+                Enable Facilities Section
+              </Label>
+            </div>
+            {formData.facilitiesSectionEnabled && (
+              <>
+                <div>
+                  <Label>Facilities Section Title</Label>
+                  <Input value={formData.facilitiesSectionTitle || "Our Facilities"} onChange={(e) => updateField("facilitiesSectionTitle", e.target.value)} />
+                </div>
+                <div>
+                  <Label>Facilities List (JSON)</Label>
+                  <Textarea rows={3} value={typeof formData.facilitiesList === 'string' ? formData.facilitiesList : JSON.stringify(formData.facilitiesList || [])} onChange={(e) => {
+                    try {
+                      updateField("facilitiesList", JSON.parse(e.target.value))
+                    } catch {
+                      updateField("facilitiesList", e.target.value)
+                    }
+                  }} placeholder='[{"name": "", "description": ""}]' />
+                </div>
+              </>
+            )}
+            <div>
+              <Label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.campusGalleryEnabled || false} onChange={(e) => updateField("campusGalleryEnabled", e.target.checked)} />
+                Enable Campus Gallery
+              </Label>
+            </div>
+            {formData.campusGalleryEnabled && (
+              <div>
+                <Label>Campus Gallery Photos (JSON URLs)</Label>
+                <Textarea rows={2} value={typeof formData.campusGalleryPhotos === 'string' ? formData.campusGalleryPhotos : JSON.stringify(formData.campusGalleryPhotos || [])} onChange={(e) => {
+                  try {
+                    updateField("campusGalleryPhotos", JSON.parse(e.target.value))
+                  } catch {
+                    updateField("campusGalleryPhotos", e.target.value)
+                  }
+                }} placeholder='["https://...", "https://..."]' />
+              </div>
+            )}
+          </div>
+        </Section>
+
+        {/* Section 10: Fundraising */}
+        <Section title="Fundraising & Donations" description="Fundraiser and donation information">
+          <div className="grid grid-cols-1 gap-4">
+            <div>
+              <Label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.fundraisingSectionEnabled || false} onChange={(e) => updateField("fundraisingSectionEnabled", e.target.checked)} />
+                Enable Fundraising Section
+              </Label>
+            </div>
+            {formData.fundraisingSectionEnabled && (
+              <>
+                <div>
+                  <Label>Fundraising Section Title</Label>
+                  <Input value={formData.fundraisingSectionTitle || "Support Our Mission"} onChange={(e) => updateField("fundraisingSectionTitle", e.target.value)} />
+                </div>
+                <div>
+                  <Label>Featured Fundraisers Count</Label>
+                  <Input type="number" value={formData.featuredFundraisersCount || 3} onChange={(e) => updateField("featuredFundraisersCount", parseInt(e.target.value) || 3)} />
+                </div>
+                <div>
+                  <Label>Donation CTA Text</Label>
+                  <Input value={formData.donationCallToActionText || ""} onChange={(e) => updateField("donationCallToActionText", e.target.value)} />
+                </div>
+                <div>
+                  <Label>Donation CTA Link</Label>
+                  <Input value={formData.donationCallToActionLink || ""} onChange={(e) => updateField("donationCallToActionLink", e.target.value)} placeholder="https://..." />
+                </div>
+              </>
+            )}
+          </div>
+        </Section>
+
+        {/* Section 11: Accreditations */}
+        <Section title="Accreditations" description="Certifications and accreditations">
+          <div className="grid grid-cols-1 gap-4">
+            <div>
+              <Label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.accreditationsSectionEnabled || false} onChange={(e) => updateField("accreditationsSectionEnabled", e.target.checked)} />
+                Enable Accreditations Section
+              </Label>
+            </div>
+            {formData.accreditationsSectionEnabled && (
+              <>
+                <div>
+                  <Label>Accreditations Title</Label>
+                  <Input value={formData.accreditationsSectionTitle || "Accreditations"} onChange={(e) => updateField("accreditationsSectionTitle", e.target.value)} />
+                </div>
+                <div>
+                  <Label>Accreditations List (JSON)</Label>
+                  <Textarea rows={2} value={typeof formData.accreditationsList === 'string' ? formData.accreditationsList : JSON.stringify(formData.accreditationsList || [])} onChange={(e) => {
+                    try {
+                      updateField("accreditationsList", JSON.parse(e.target.value))
+                    } catch {
+                      updateField("accreditationsList", e.target.value)
+                    }
+                  }} placeholder='[{"name": "", "logoUrl": ""}]' />
+                </div>
+              </>
+            )}
+          </div>
+        </Section>
+
+        {/* Section 12: Contact & Footer */}
+        <Section title="Contact & Footer" description="Contact information and footer links">
+          <div className="grid grid-cols-1 gap-4">
+            <div>
+              <Label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.contactSectionEnabled || false} onChange={(e) => updateField("contactSectionEnabled", e.target.checked)} />
+                Enable Contact Section
+              </Label>
+            </div>
+            {formData.contactSectionEnabled && (
+              <>
+                <div>
+                  <Label>Footer Title</Label>
+                  <Input value={formData.footerTitle || "Get In Touch"} onChange={(e) => updateField("footerTitle", e.target.value)} />
+                </div>
+                <div>
+                  <Label>Footer Description</Label>
+                  <Textarea rows={2} value={formData.footerDescription || ""} onChange={(e) => updateField("footerDescription", e.target.value)} />
+                </div>
+                <div>
+                  <Label className="flex items-center gap-2">
+                    <input type="checkbox" checked={formData.displayContactForm || false} onChange={(e) => updateField("displayContactForm", e.target.checked)} />
+                    Display Contact Form
+                  </Label>
+                </div>
+                <div>
+                  <Label>Map Location Embed URL</Label>
+                  <Input value={formData.mapLocationEmbedUrl || ""} onChange={(e) => updateField("mapLocationEmbedUrl", e.target.value)} placeholder="https://maps.google.com/..." />
+                </div>
+                <div>
+                  <Label>Office Hours (JSON)</Label>
+                  <Textarea rows={2} value={typeof formData.officeHours === 'string' ? formData.officeHours : JSON.stringify(formData.officeHours || {})} onChange={(e) => {
+                    try {
+                      updateField("officeHours", JSON.parse(e.target.value))
+                    } catch {
+                      updateField("officeHours", e.target.value)
+                    }
+                  }} placeholder='{"Monday": "8am-4pm", "Tuesday": "8am-4pm"}' />
+                </div>
+                <div>
+                  <Label>Quick Links (JSON)</Label>
+                  <Textarea rows={2} value={typeof formData.quickLinks === 'string' ? formData.quickLinks : JSON.stringify(formData.quickLinks || [])} onChange={(e) => {
+                    try {
+                      updateField("quickLinks", JSON.parse(e.target.value))
+                    } catch {
+                      updateField("quickLinks", e.target.value)
+                    }
+                  }} placeholder='[{"title": "", "url": ""}]' />
+                </div>
+              </>
+            )}
+          </div>
+        </Section>
+
+        {/* Section 13: Social Media */}
+        <Section title="Social Media & Messaging" description="Social media links and messaging options">
+          <div className="grid grid-cols-1 gap-4">
+            <div>
+              <Label>Social Media Links (JSON)</Label>
+              <Textarea rows={2} value={typeof formData.socialMediaLinks === 'string' ? formData.socialMediaLinks : JSON.stringify(formData.socialMediaLinks || {})} onChange={(e) => {
+                try {
+                  updateField("socialMediaLinks", JSON.parse(e.target.value))
+                } catch {
+                  updateField("socialMediaLinks", e.target.value)
+                }
+              }} placeholder='{"facebook": "https://...", "twitter": "https://..."}' />
+            </div>
+            <div>
+              <Label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.shareEnabled || false} onChange={(e) => updateField("shareEnabled", e.target.checked)} />
+                Enable Social Sharing Buttons
+              </Label>
+            </div>
+            <div>
+              <Label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.whatsappEnabled || false} onChange={(e) => updateField("whatsappEnabled", e.target.checked)} />
+                Enable WhatsApp Chat
+              </Label>
+            </div>
+            {formData.whatsappEnabled && (
+              <div>
+                <Label>WhatsApp Number</Label>
+                <Input value={formData.whatsappNumber || ""} onChange={(e) => updateField("whatsappNumber", e.target.value)} placeholder="+1234567890" />
+              </div>
+            )}
+          </div>
+        </Section>
+
+        {/* Section 14: SEO */}
+        <Section title="SEO & Metadata" description="Search engine optimization">
+          <div className="grid grid-cols-1 gap-4">
+            <div>
+              <Label>Meta Title</Label>
+              <Input value={formData.metaTitle || ""} onChange={(e) => updateField("metaTitle", e.target.value)} placeholder="Max 60 characters" maxLength={60} />
+            </div>
+            <div>
+              <Label>Meta Description</Label>
+              <Input value={formData.metaDescription || ""} onChange={(e) => updateField("metaDescription", e.target.value)} placeholder="Max 160 characters" maxLength={160} />
+            </div>
+            <div>
+              <Label>Meta Keywords</Label>
+              <Input value={formData.metaKeywords || ""} onChange={(e) => updateField("metaKeywords", e.target.value)} placeholder="Comma separated keywords" />
+            </div>
+            <div>
+              <Label>OG Title</Label>
+              <Input value={formData.ogTitle || ""} onChange={(e) => updateField("ogTitle", e.target.value)} />
+            </div>
+            <div>
+              <Label>OG Description</Label>
+              <Input value={formData.ogDescription || ""} onChange={(e) => updateField("ogDescription", e.target.value)} />
+            </div>
+            <div>
+              <Label>OG Image (1200x630px)</Label>
+              <input type="file" accept="image/*" onChange={(e) => updateField("ogImage", e.target.files?.[0] || null)} className="block w-full text-sm text-muted-foreground" />
+            </div>
+            <div>
+              <Label>Canonical URL</Label>
+              <Input value={formData.canonicalUrl || ""} onChange={(e) => updateField("canonicalUrl", e.target.value)} placeholder="https://..." />
+            </div>
+          </div>
+        </Section>
+
+        {/* Section 15: CTAs */}
+        <Section title="Call-to-Action Sections" description="Secondary and tertiary CTA sections">
+          <div className="grid grid-cols-1 gap-4">
+            <div>
+              <Label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.secondaryCtaSectionEnabled || false} onChange={(e) => updateField("secondaryCtaSectionEnabled", e.target.checked)} />
+                Enable Secondary CTA Section
+              </Label>
+            </div>
+            {formData.secondaryCtaSectionEnabled && (
+              <>
+                <div>
+                  <Label>Secondary CTA Title</Label>
+                  <Input value={formData.secondaryCtaTitle || ""} onChange={(e) => updateField("secondaryCtaTitle", e.target.value)} />
+                </div>
+                <div>
+                  <Label>Secondary CTA Description</Label>
+                  <Textarea rows={2} value={formData.secondaryCtaDescription || ""} onChange={(e) => updateField("secondaryCtaDescription", e.target.value)} />
+                </div>
+                <div>
+                  <Label>Secondary CTA Button Text</Label>
+                  <Input value={formData.secondaryCtaButtonText || ""} onChange={(e) => updateField("secondaryCtaButtonText", e.target.value)} />
+                </div>
+                <div>
+                  <Label>Secondary CTA Button Link</Label>
+                  <Input value={formData.secondaryCtaButtonLink || ""} onChange={(e) => updateField("secondaryCtaButtonLink", e.target.value)} placeholder="https://..." />
+                </div>
+                <div>
+                  <Label>Secondary CTA Image</Label>
+                  <input type="file" accept="image/*" onChange={(e) => updateField("secondaryCtaImage", e.target.files?.[0] || null)} className="block w-full text-sm text-muted-foreground" />
+                </div>
+              </>
+            )}
+            <div>
+              <Label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.tertiaryCataEnabled || false} onChange={(e) => updateField("tertiaryCataEnabled", e.target.checked)} />
+                Enable Tertiary CTA Section
+              </Label>
+            </div>
+            {formData.tertiaryCataEnabled && (
+              <>
+                <div>
+                  <Label>Tertiary CTA Title</Label>
+                  <Input value={formData.tertiaryCtaTitle || ""} onChange={(e) => updateField("tertiaryCtaTitle", e.target.value)} />
+                </div>
+                <div>
+                  <Label>Tertiary CTA Description</Label>
+                  <Textarea rows={2} value={formData.tertiaryCtaDescription || ""} onChange={(e) => updateField("tertiaryCtaDescription", e.target.value)} />
+                </div>
+                <div>
+                  <Label>Tertiary CTA Button Text</Label>
+                  <Input value={formData.tertiaryCtaButtonText || ""} onChange={(e) => updateField("tertiaryCtaButtonText", e.target.value)} />
+                </div>
+                <div>
+                  <Label>Tertiary CTA Button Link</Label>
+                  <Input value={formData.tertiaryCtaButtonLink || ""} onChange={(e) => updateField("tertiaryCtaButtonLink", e.target.value)} placeholder="https://..." />
+                </div>
+              </>
+            )}
+          </div>
+        </Section>
+
+        {/* Section 16: Events */}
+        <Section title="Events & Calendar" description="Upcoming events section">
+          <div className="grid grid-cols-1 gap-4">
+            <div>
+              <Label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.eventsSectionEnabled || false} onChange={(e) => updateField("eventsSectionEnabled", e.target.checked)} />
+                Enable Events Section
+              </Label>
+            </div>
+            {formData.eventsSectionEnabled && (
+              <>
+                <div>
+                  <Label>Events Section Title</Label>
+                  <Input value={formData.eventsSectionTitle || "Upcoming Events"} onChange={(e) => updateField("eventsSectionTitle", e.target.value)} />
+                </div>
+                <div>
+                  <Label>Upcoming Events Count</Label>
+                  <Input type="number" value={formData.upcomingEventsCount || 3} onChange={(e) => updateField("upcomingEventsCount", parseInt(e.target.value) || 3)} />
+                </div>
+                <div>
+                  <Label>Link to Full Calendar</Label>
+                  <Input value={formData.linkToFullCalendar || ""} onChange={(e) => updateField("linkToFullCalendar", e.target.value)} placeholder="https://..." />
+                </div>
+              </>
+            )}
+          </div>
+        </Section>
+
+        {/* Section 17: Achievements */}
+        <Section title="Achievements & Performance" description="School achievements and performance metrics">
+          <div className="grid grid-cols-1 gap-4">
+            <div>
+              <Label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.achievementsSectionEnabled || false} onChange={(e) => updateField("achievementsSectionEnabled", e.target.checked)} />
+                Enable Achievements Section
+              </Label>
+            </div>
+            {formData.achievementsSectionEnabled && (
+              <>
+                <div>
+                  <Label>Achievements Section Title</Label>
+                  <Input value={formData.achievementsSectionTitle || "Our Achievements"} onChange={(e) => updateField("achievementsSectionTitle", e.target.value)} />
+                </div>
+                <div>
+                  <Label className="flex items-center gap-2">
+                    <input type="checkbox" checked={formData.examPerformanceEnabled || false} onChange={(e) => updateField("examPerformanceEnabled", e.target.checked)} />
+                    Show Exam Performance
+                  </Label>
+                </div>
+                <div>
+                  <Label className="flex items-center gap-2">
+                    <input type="checkbox" checked={formData.universityPlacementsEnabled || false} onChange={(e) => updateField("universityPlacementsEnabled", e.target.checked)} />
+                    Show University Placements
+                  </Label>
+                </div>
+                <div>
+                  <Label>Awards & Recognitions (JSON)</Label>
+                  <Textarea rows={2} value={typeof formData.awardsRecognitionsList === 'string' ? formData.awardsRecognitionsList : JSON.stringify(formData.awardsRecognitionsList || [])} onChange={(e) => {
+                    try {
+                      updateField("awardsRecognitionsList", JSON.parse(e.target.value))
+                    } catch {
+                      updateField("awardsRecognitionsList", e.target.value)
+                    }
+                  }} placeholder='[{"title": "", "year": 2024}]' />
+                </div>
+              </>
+            )}
+          </div>
+        </Section>
+
+        {/* Section 18: Admin Controls */}
+        <Section title="Admin Controls" description="Theme, maintenance mode, and advanced settings">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label>Homepage Theme</Label>
+              <select value={formData.homepageTheme || "light"} onChange={(e) => updateField("homepageTheme", e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-2">
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+            <div>
+              <Label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.maintenanceModeEnabled || false} onChange={(e) => updateField("maintenanceModeEnabled", e.target.checked)} />
+                Maintenance Mode
+              </Label>
+            </div>
+            {formData.maintenanceModeEnabled && (
+              <div className="md:col-span-2">
+                <Label>Maintenance Mode Message</Label>
+                <Textarea rows={2} value={formData.maintenanceModeMessage || ""} onChange={(e) => updateField("maintenanceModeMessage", e.target.value)} />
+              </div>
+            )}
+            <div>
+              <Label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.showBetaFeatures || false} onChange={(e) => updateField("showBetaFeatures", e.target.checked)} />
+                Show Beta Features
+              </Label>
+            </div>
+            <div className="md:col-span-2">
+              <Label>Custom CSS</Label>
+              <Textarea rows={4} value={formData.customCss || ""} onChange={(e) => updateField("customCss", e.target.value)} placeholder="/* Custom CSS rules */" />
+            </div>
+            <div className="md:col-span-2">
+              <Label>Sections Display Order (JSON)</Label>
+              <Textarea rows={2} value={typeof formData.sectionsDisplayOrder === 'string' ? formData.sectionsDisplayOrder : JSON.stringify(formData.sectionsDisplayOrder || [])} onChange={(e) => {
+                try {
+                  updateField("sectionsDisplayOrder", JSON.parse(e.target.value))
+                } catch {
+                  updateField("sectionsDisplayOrder", e.target.value)
+                }
+              }} placeholder='["hero", "statistics", "about", ...]' />
+            </div>
+          </div>
+        </Section>
+
+        {/* Save Button */}
+        <div className="flex items-center gap-4 p-4 md:p-6 rounded-lg border border-border bg-card sticky bottom-0">
+          <Button onClick={save} className="flex-1">Save All Changes</Button>
+          {saved === "ok" && <SavedBanner />}
         </div>
-
-        <Tabs defaultValue="branding">
-          <TabsList className="flex w-full flex-wrap justify-start gap-1">
-            {["branding", "hero", "about", "support", "programs", "features",
-              "purpose", "gallery", "admissions", "news", "contact", "footer"].map((t) => (
-              <TabsTrigger key={t} value={t} className="capitalize">{t}</TabsTrigger>
-            ))}
-          </TabsList>
-
-          <TabsContent value="branding" className="mt-4 space-y-4">
-            <Section title="Logo & name" description="Shown in the website header and footer, on the login screen and in the dashboard sidebar.">
-              <div className="flex flex-wrap items-end gap-6">
-                <div className="flex flex-col items-center gap-2">
-                  <img
-                    src={logoPreview || "/farouk-logo.jpeg"}
-                    alt="Logo preview"
-                    className="h-20 w-20 rounded-xl border border-border object-cover"
-                  />
-                  <span className="text-[11px] text-muted-foreground">Current logo</span>
-                </div>
-                <div className="flex-1 min-w-[240px] space-y-1.5">
-                  <Label>Upload a new logo</Label>
-                  <Input type="file" accept="image/*" onChange={(e) => {
-                    const file = e.target.files?.[0] || null
-                    setLogoFile(file)
-                    if (file) setLogoPreview(URL.createObjectURL(file))
-                    setSaved(false)
-                  }} />
-                  <p className="text-[11px] text-muted-foreground">
-                    A square image works best. An uploaded file takes priority over the URL below.
-                  </p>
-                </div>
-              </div>
-              <TextFields group="branding" />
-            </Section>
-          </TabsContent>
-
-          <TabsContent value="hero" className="mt-4 space-y-4">
-            <Section title="Hero section">
-              <TextFields group="hero" />
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label>Upload background image</Label>
-                  <Input type="file" accept="image/*" onChange={(e) => { setHeroImageFile(e.target.files?.[0] || null); setSaved(false) }} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Upload video</Label>
-                  <Input type="file" accept="video/*" onChange={(e) => { setHeroVideoFile(e.target.files?.[0] || null); setSaved(false) }} />
-                </div>
-              </div>
-              <ObjectList name="hero_stats" label="Hero statistics" itemName="Stat" />
-            </Section>
-            <Section title="Credentials strip" description="The registration numbers shown just below the hero.">
-              <ObjectList name="credentials" label="Credentials" itemName="Credential" />
-            </Section>
-            <Section title="Statistics banner" description="The dark band of headline numbers.">
-              <ObjectList name="stats_banner" label="Banner statistics" itemName="Stat" />
-            </Section>
-          </TabsContent>
-
-          <TabsContent value="about" className="mt-4">
-            <Section title="About section">
-              <TextFields group="about" />
-              <StringList name="about_paragraphs" label="Paragraphs" placeholder="A paragraph of the about text" />
-              <StringList name="about_highlights" label="Tags" placeholder="e.g. NECTA Aligned" />
-            </Section>
-          </TabsContent>
-
-          <TabsContent value="support" className="mt-4">
-            <Section title="Sponsorship section">
-              <TextFields group="support" />
-              <ObjectList name="support_stats" label="Sponsorship statistics" itemName="Stat" />
-            </Section>
-          </TabsContent>
-
-          <TabsContent value="programs" className="mt-4">
-            <Section title="Academic programs">
-              <TextFields group="programs" />
-              <ObjectList name="programs" label="Programme cards" itemName="Programme" />
-            </Section>
-          </TabsContent>
-
-          <TabsContent value="features" className="mt-4">
-            <Section title="Why choose us">
-              <TextFields group="features" />
-              <ObjectList name="features" label="Feature cards" itemName="Feature" />
-            </Section>
-          </TabsContent>
-
-          <TabsContent value="purpose" className="mt-4">
-            <Section title="Vision & mission">
-              <TextFields group="purpose" />
-            </Section>
-          </TabsContent>
-
-          <TabsContent value="gallery" className="mt-4">
-            <Section title="Campus gallery">
-              <TextFields group="gallery" />
-              <ObjectList name="gallery" label="Gallery images" itemName="Image" />
-            </Section>
-          </TabsContent>
-
-          <TabsContent value="admissions" className="mt-4">
-            <Section title="Admissions banner">
-              <TextFields group="admissions" />
-              <StringList name="admission_levels" label="Levels offered" placeholder="e.g. Primary — Foundation Learning" />
-            </Section>
-          </TabsContent>
-
-          <TabsContent value="news" className="mt-4">
-            <Section title="News & updates">
-              <TextFields group="news" />
-              <div className="rounded-lg border border-border p-4">
-                <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Featured post</p>
-                <div className="grid gap-3 md:grid-cols-2">
-                  {[["title", "Headline"], ["category", "Category"], ["date", "Date"], ["image", "Image URL"]].map(([k, l]) => (
-                    <div key={k} className="flex flex-col gap-1.5">
-                      <Label className="text-xs">{l}</Label>
-                      <Input
-                        value={content.featured_news_post?.[k] ?? ""}
-                        onChange={(e) => set("featured_news_post", { ...(content.featured_news_post || {}), [k]: e.target.value })}
-                      />
-                    </div>
-                  ))}
-                  <div className="flex flex-col gap-1.5 md:col-span-2">
-                    <Label className="text-xs">Excerpt</Label>
-                    <Textarea rows={3}
-                      value={content.featured_news_post?.excerpt ?? ""}
-                      onChange={(e) => set("featured_news_post", { ...(content.featured_news_post || {}), excerpt: e.target.value })}
-                    />
-                  </div>
-                </div>
-              </div>
-              <ObjectList name="news_cards" label="News cards" itemName="Story" />
-            </Section>
-          </TabsContent>
-
-          <TabsContent value="contact" className="mt-4">
-            <Section title="Contact details">
-              <TextFields group="contact" />
-              <ObjectList name="contact_phones" label="Phone numbers" itemName="Number" />
-            </Section>
-          </TabsContent>
-
-          <TabsContent value="footer" className="mt-4">
-            <Section title="Footer">
-              <TextFields group="footer" />
-              <StringList name="footer_registration_lines" label="Registration lines" placeholder="e.g. TIN: 175-002-324" />
-            </Section>
-          </TabsContent>
-        </Tabs>
       </div>
-    </>
+    </div>
   )
 }
