@@ -1,32 +1,19 @@
 from django.db.models import Count, Q
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
-from django.conf import settings
-from django.contrib.auth.models import User
 
-from core.models import UserProfile
+from core import role_sync
 
 
-# Ensure that when a Teacher is created, an auth.User + UserProfile exist
-# so that teachers appear in the central User management list.
+# A Teacher created in the Teacher panel must get a login account carrying the
+# teacher role, so they appear in User Management and can reach their section.
+# The rules live in core.role_sync, which drives the opposite direction too.
 @receiver(post_save, sender="academics.Teacher")
 def create_auth_user_for_teacher(sender, instance, created, **kwargs):
-    # If a teacher with this email should have a login, create/link User
-    if not instance.email:
+    if role_sync.is_syncing():
         return
-    user = User.objects.filter(username=instance.email).first()
-    if user:
-        # Ensure profile role is teacher
-        profile, _ = UserProfile.objects.get_or_create(user=user)
-        if profile.role != "teacher":
-            profile.role = "teacher"
-            profile.save()
-    else:
-        # Create a non-staff user with unusable password; admins can set password later
-        user = User.objects.create_user(username=instance.email, email=instance.email)
-        user.set_unusable_password()
-        user.save()
-        UserProfile.objects.get_or_create(user=user, defaults={"role": "teacher"})
+    with role_sync.guard():
+        role_sync.sync_teacher_to_profile(instance)
 
 
 def _sync_attendance(date, student_class):

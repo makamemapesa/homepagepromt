@@ -52,7 +52,22 @@ export default function AssignmentsPage() {
     api.get("/api/teachers/").then(r => setTeachersExtended(getResults(r.data))).catch(() => {})
   }, [user, authLoading])
 
-  const departments = Array.from(new Set(teachersExtended.map((t) => t.department).filter(Boolean)))
+  // An assignment's department is the DEPARTMENT OF THE SUBJECT being taught
+  // (the API serialises it from `subject.department`) — not the teacher's own
+  // department, which is a separate free-text field on the teacher record.
+  // Build the filter from the assignments themselves so the dropdown, the
+  // breakdown cards and the table all refer to the same thing.
+  const deptOf = (a: any) => String(a?.department ?? "").trim()
+
+  const departments = Array.from(
+    assignments.reduce((acc: Map<string, string>, a) => {
+      const dept = deptOf(a)
+      // Dedupe case-insensitively so free-typed variants ("Sciences" / "sciences")
+      // don't show up as two separate departments; keep the first spelling seen.
+      if (dept && !acc.has(dept.toLowerCase())) acc.set(dept.toLowerCase(), dept)
+      return acc
+    }, new Map<string, string>()).values()
+  ).sort((a, b) => a.localeCompare(b))
 
   const filtered = assignments.filter((a) => {
     const q = search.toLowerCase()
@@ -61,7 +76,7 @@ export default function AssignmentsPage() {
     const className = a.className || a.class || ""
     return (
       (teacherName.toLowerCase().includes(q) || subjectName.toLowerCase().includes(q) || className.toLowerCase().includes(q)) &&
-      (deptFilter === "all" || a.department === deptFilter)
+      (deptFilter === "all" || deptOf(a).toLowerCase() === deptFilter.toLowerCase())
     )
   })
 
@@ -74,15 +89,15 @@ export default function AssignmentsPage() {
   }
   const handleSave = () => {
     if (!user || !["super_admin", "admin"].includes(user.role)) return
-    const teacher = teachersExtended.find((t) => String(t.id) === form.teacherId)
     const payload = { student_class: form.class, subject: form.subject, teacher: form.teacherId }
     setSaveLoading(true); setSaveError("")
     if (editTarget) {
       api.patch(`/api/teacher-assignments/${editTarget.id}/`, payload)
         .then(r => {
-          setAssignments((prev) => prev.map((a) => a.id === editTarget.id
-            ? { ...a, ...r.data, teacherName: teacher?.name, className: form.class, subjectName: form.subject }
-            : a))
+          // The API response already carries teacherName / subjectName / className /
+          // department resolved from the saved relations — don't overwrite them with
+          // the raw ids held in the form.
+          setAssignments((prev) => prev.map((a) => a.id === editTarget.id ? { ...a, ...r.data } : a))
           setOpen(false)
         })
         .catch(() => setSaveError("Failed to save assignment."))
@@ -101,7 +116,10 @@ export default function AssignmentsPage() {
       .catch(() => {})
   }
 
-  const depCounts = departments.map((d) => ({ dept: d, count: assignments.filter((a) => a.department === d).length }))
+  const depCounts = departments.map((d) => ({
+    dept: d,
+    count: assignments.filter((a) => deptOf(a).toLowerCase() === d.toLowerCase()).length,
+  }))
 
   if (authLoading || !user) return null
   if (!["super_admin", "admin"].includes(user.role)) return null
@@ -114,7 +132,7 @@ export default function AssignmentsPage() {
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         {[
           { label: "Total Assignments", value: assignments.length, icon: CheckCircle2, color: "text-primary", bg: "bg-primary/10" },
-          { label: "Teachers Assigned", value: new Set(assignments.map((a) => a.teacherId)).size, icon: UserCheck, color: "text-accent", bg: "bg-accent/10" },
+          { label: "Teachers Assigned", value: new Set(assignments.map((a) => a.teacher).filter((t) => t != null)).size, icon: UserCheck, color: "text-accent", bg: "bg-accent/10" },
           { label: "Classes Covered", value: new Set(assignments.map((a) => a.className)).size, icon: Users, color: "text-blue-600", bg: "bg-blue-500/10" },
           { label: "Departments", value: departments.length, icon: Building2, color: "text-purple-600", bg: "bg-purple-500/10" },
         ].map(({ label, value, icon: Icon, color, bg }) => (
@@ -200,7 +218,9 @@ export default function AssignmentsPage() {
                   </TableCell>
                   <TableCell><Badge variant="outline">{a.className || a.class}</Badge></TableCell>
                   <TableCell className="hidden sm:table-cell">
-                    <Badge variant="secondary">{a.department}</Badge>
+                    {deptOf(a)
+                      ? <Badge variant="secondary">{deptOf(a)}</Badge>
+                      : <span className="text-xs text-muted-foreground">—</span>}
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline" className="bg-accent/10 text-accent border-accent/30">Active</Badge>

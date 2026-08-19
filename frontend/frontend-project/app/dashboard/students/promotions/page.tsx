@@ -144,7 +144,11 @@ export default function PromotionsPage() {
   const total      = promotionStudents.length
   const promotionRate = total > 0 ? Math.round(((eligible + graduated) / total) * 100) : 0
 
-  const uniqueClasses = Array.from(new Set(promotionStudents.map((s) => s.currentClass))).sort()
+  // Students with no class assigned yield an empty class name — it must be filtered
+  // out, because a <SelectItem value=""> throws and takes the whole page down.
+  const uniqueClasses = Array.from(
+    new Set(promotionStudents.map((s) => s.currentClass).filter(Boolean))
+  ).sort()
 
   const handlePromote = () => {
     if (!user || !["super_admin", "admin"].includes(user.role)) return
@@ -363,7 +367,11 @@ export default function PromotionsPage() {
                       </TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">{student.regNo}</TableCell>
                       <TableCell>
-                        <Badge variant="outline">{student.currentClass}</Badge>
+                        {student.currentClass ? (
+                          <Badge variant="outline">{student.currentClass}</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-muted-foreground">Unassigned</Badge>
+                        )}
                       </TableCell>
                       <TableCell className="hidden md:table-cell">
                         {student.nextClass === "Graduated" ? (

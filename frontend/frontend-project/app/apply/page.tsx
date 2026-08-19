@@ -283,6 +283,12 @@ export default function ApplyPage() {
     <div className="min-h-screen bg-background py-10 px-4">
       <div className="max-w-2xl mx-auto space-y-6">
 
+        <Link href="/">
+          <Button variant="ghost" size="sm" className="gap-1.5 -ml-2 text-muted-foreground">
+            <ChevronLeft className="h-4 w-4" /> Back to Home
+          </Button>
+        </Link>
+
         {/* Header */}
         <div className="text-center space-y-2">
           <div className="flex justify-center mb-3">

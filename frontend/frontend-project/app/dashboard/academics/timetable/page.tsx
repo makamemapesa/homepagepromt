@@ -16,6 +16,8 @@ import {
   Plus,
   MapPin,
   GraduationCap,
+  Settings2,
+  Trash2,
 } from "lucide-react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Button } from "@/components/ui/button"
@@ -41,17 +43,16 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  useTimetablePeriods,
+  periodLabel,
+  periodTime,
+  type TimetablePeriod,
+} from "@/hooks/use-timetable-periods"
 
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"] as const
-const PERIODS = [
-  { period: 1, time: "8:00 - 8:45" },
-  { period: 2, time: "8:45 - 9:30" },
-  { period: 3, time: "9:45 - 10:30" },
-  { period: 4, time: "10:30 - 11:15" },
-  { period: 5, time: "11:30 - 12:15" },
-  { period: 6, time: "12:15 - 1:00" },
-]
 
 const PERIOD_COLORS = [
   "bg-primary/10 text-primary border-primary/20",
@@ -94,6 +95,95 @@ export default function TimetablePage() {
   const [deleteTarget, setDeleteTarget] = useState<any>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
 
+  // The bell schedule — how many periods there are and when each one runs.
+  const { periods: PERIODS, reload: reloadPeriods } = useTimetablePeriods()
+  const canEditPeriods = !!user && ["super_admin", "admin"].includes(user.role)
+  const [periodsOpen, setPeriodsOpen] = useState(false)
+  const [periodDraft, setPeriodDraft] = useState<TimetablePeriod[]>([])
+  const [periodsSaving, setPeriodsSaving] = useState(false)
+  const [periodsError, setPeriodsError] = useState("")
+
+  // Periods a lesson can actually be scheduled in (breaks are not teachable).
+  const teachingPeriods = PERIODS.filter((p) => !p.isBreak)
+
+  const openPeriods = () => {
+    setPeriodDraft(PERIODS.map((p) => ({ ...p })))
+    setPeriodsError("")
+    setPeriodsOpen(true)
+  }
+
+  const setPeriodField = (index: number, key: keyof TimetablePeriod, value: any) =>
+    setPeriodDraft((prev) => prev.map((p, i) => (i === index ? { ...p, [key]: value } : p)))
+
+  const addPeriodRow = () =>
+    setPeriodDraft((prev) => {
+      const nextNumber = prev.reduce((max, p) => Math.max(max, Number(p.period) || 0), 0) + 1
+      const last = prev[prev.length - 1]
+      return [
+        ...prev,
+        {
+          period: nextNumber,
+          label: `Period ${nextNumber}`,
+          start: last?.end || "08:00",
+          end: last?.end || "08:45",
+          isBreak: false,
+        },
+      ]
+    })
+
+  const removePeriodRow = (index: number) =>
+    setPeriodDraft((prev) => prev.filter((_, i) => i !== index))
+
+  /** How many scheduled lessons (across all classes) sit in a given period. */
+  const lessonsInPeriod = (periodNumber: number) =>
+    timetableData.filter((t: any) => Number(t.period) === Number(periodNumber)).length
+
+  const savePeriods = () => {
+    setPeriodsError("")
+    const cleaned = periodDraft.map((p) => ({
+      period: Number(p.period),
+      label: (p.label || "").trim(),
+      start: (p.start || "").trim(),
+      end: (p.end || "").trim(),
+      isBreak: !!p.isBreak,
+    }))
+    if (!cleaned.length) {
+      setPeriodsError("Add at least one period.")
+      return
+    }
+    for (const p of cleaned) {
+      if (!Number.isFinite(p.period) || p.period < 1) {
+        setPeriodsError("Every period needs a number of 1 or more.")
+        return
+      }
+      if (!p.start || !p.end) {
+        setPeriodsError(`${periodLabel(p)} needs both a start and an end time.`)
+        return
+      }
+      if (p.end <= p.start) {
+        setPeriodsError(`${periodLabel(p)} ends at or before it starts.`)
+        return
+      }
+    }
+    const numbers = cleaned.map((p) => p.period)
+    if (new Set(numbers).size !== numbers.length) {
+      setPeriodsError("Two periods share the same number — each must be unique.")
+      return
+    }
+    setPeriodsSaving(true)
+    api
+      .patch("/api/settings/", { timetablePeriods: cleaned.sort((a, b) => a.period - b.period) })
+      .then(() => reloadPeriods())
+      .then(() => setPeriodsOpen(false))
+      .catch((e) => {
+        const detail = e?.response?.data?.timetablePeriods || e?.response?.data?.timetable_periods
+        setPeriodsError(
+          Array.isArray(detail) ? String(detail[0]) : "Could not save the periods. Please try again."
+        )
+      })
+      .finally(() => setPeriodsSaving(false))
+  }
+
   const fetchTimetable = () => api.get("/api/timetable/").then(r => setTimetableData(getResults(r.data))).catch(() => {})
 
   useEffect(() => {
@@ -115,7 +205,10 @@ export default function TimetablePage() {
   const buildPayload = (form: typeof EMPTY_SLOT) => ({
     day: form.day,
     period: parseInt(form.period),
-    time: PERIODS.find(p => p.period === parseInt(form.period))?.time || "",
+    time: (() => {
+      const p = PERIODS.find(x => x.period === parseInt(form.period))
+      return p ? periodTime(p) : ""
+    })(),
     studentClass: selectedClassObj?.id,
     subject: parseInt(form.subject),
     teacher: form.teacher ? parseInt(form.teacher) : null,
@@ -243,6 +336,11 @@ export default function TimetablePage() {
                     </Badge>
                   </div>
                   <div className="flex items-center gap-2">
+                    {canEditPeriods && (
+                      <Button variant="outline" size="sm" onClick={openPeriods}>
+                        <Settings2 className="mr-2 h-4 w-4" /> Edit Periods
+                      </Button>
+                    )}
                     <Button variant="outline" size="sm">
                       <Download className="mr-2 h-4 w-4" /> Export PDF
                     </Button>
@@ -275,8 +373,8 @@ export default function TimetablePage() {
                               <Select value={addForm.period} onValueChange={v => setAddForm({ ...addForm, period: v })}>
                                 <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
                                 <SelectContent>
-                                  {PERIODS.map((p) => (
-                                    <SelectItem key={p.period} value={String(p.period)}>Period {p.period} ({p.time})</SelectItem>
+                                  {teachingPeriods.map((p) => (
+                                    <SelectItem key={p.period} value={String(p.period)}>{periodLabel(p)} ({periodTime(p)})</SelectItem>
                                   ))}
                                 </SelectContent>
                               </Select>
@@ -310,7 +408,7 @@ export default function TimetablePage() {
                                 {teachers.find((t: any) => t.id === addTeacherId)?.name} — {addForm.day}
                               </p>
                               <div className="flex flex-wrap gap-1">
-                                {PERIODS.map((p) => {
+                                {teachingPeriods.map((p) => {
                                   const busy = addTeacherBusyOnDay.includes(p.period)
                                   const selected = addForm.period === String(p.period)
                                   return (
@@ -369,12 +467,28 @@ export default function TimetablePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {PERIODS.map((period, periodIndex) => (
+                    {PERIODS.map((period, periodIndex) => period.isBreak ? (
                       <tr key={period.period} className="border-b border-border last:border-0">
                         <td className="p-3 border-r border-border bg-muted/30">
                           <div className="flex flex-col">
-                            <span className="text-xs font-semibold text-card-foreground">Period {period.period}</span>
-                            <span className="text-[10px] text-muted-foreground">{period.time}</span>
+                            <span className="text-xs font-semibold text-card-foreground">{periodLabel(period)}</span>
+                            <span className="text-[10px] text-muted-foreground">{periodTime(period)}</span>
+                          </div>
+                        </td>
+                        <td colSpan={DAYS.length} className="p-1.5">
+                          <div className="rounded-lg border border-dashed border-border bg-muted/40 py-2.5 text-center">
+                            <span className="text-[11px] font-medium text-muted-foreground tracking-wide">
+                              {periodLabel(period)}
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr key={period.period} className="border-b border-border last:border-0">
+                        <td className="p-3 border-r border-border bg-muted/30">
+                          <div className="flex flex-col">
+                            <span className="text-xs font-semibold text-card-foreground">{periodLabel(period)}</span>
+                            <span className="text-[10px] text-muted-foreground">{periodTime(period)}</span>
                           </div>
                         </td>
                         {DAYS.map((day) => {
@@ -515,7 +629,7 @@ export default function TimetablePage() {
                 <Select value={editForm.period} onValueChange={v => setEditForm({ ...editForm, period: v })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {PERIODS.map((p) => <SelectItem key={p.period} value={String(p.period)}>Period {p.period} ({p.time})</SelectItem>)}
+                    {teachingPeriods.map((p) => <SelectItem key={p.period} value={String(p.period)}>{periodLabel(p)} ({periodTime(p)})</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -548,7 +662,7 @@ export default function TimetablePage() {
                   {teachers.find((t: any) => t.id === editTeacherId)?.name} — {editForm.day}
                 </p>
                 <div className="flex flex-wrap gap-1">
-                  {PERIODS.map((p) => {
+                  {teachingPeriods.map((p) => {
                     const busy = editTeacherBusyOnDay.includes(p.period)
                     const selected = editForm.period === String(p.period)
                     return (
@@ -598,6 +712,97 @@ export default function TimetablePage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
             <Button variant="destructive" onClick={handleDelete} disabled={deleteLoading}>{deleteLoading ? "Removing..." : "Remove"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Period structure editor */}
+      <Dialog open={periodsOpen} onOpenChange={setPeriodsOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle style={{ fontFamily: "var(--font-heading)" }}>Edit Periods</DialogTitle>
+            <DialogDescription>
+              Set how many periods the school day has and when each one runs. This applies to
+              every class timetable and to what parents see.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-2 py-1 max-h-[55vh] overflow-y-auto pr-1">
+            <div className="grid grid-cols-[3rem_1fr_6.5rem_6.5rem_4.5rem_2rem] gap-2 px-1 pb-1">
+              {["No.", "Name", "Start", "End", "Break", ""].map((h, i) => (
+                <span key={i} className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{h}</span>
+              ))}
+            </div>
+
+            {periodDraft.map((p, i) => {
+              const inUse = lessonsInPeriod(p.period)
+              return (
+                <div key={i} className="flex flex-col gap-1">
+                  <div className="grid grid-cols-[3rem_1fr_6.5rem_6.5rem_4.5rem_2rem] gap-2 items-center">
+                    <Input
+                      type="number"
+                      min={1}
+                      value={String(p.period ?? "")}
+                      onChange={e => setPeriodField(i, "period", Number(e.target.value))}
+                      className="h-9 px-2 text-center"
+                    />
+                    <Input
+                      value={p.label ?? ""}
+                      placeholder={`Period ${p.period}`}
+                      onChange={e => setPeriodField(i, "label", e.target.value)}
+                      className="h-9"
+                    />
+                    <Input
+                      type="time"
+                      value={p.start ?? ""}
+                      onChange={e => setPeriodField(i, "start", e.target.value)}
+                      className="h-9 px-2"
+                    />
+                    <Input
+                      type="time"
+                      value={p.end ?? ""}
+                      onChange={e => setPeriodField(i, "end", e.target.value)}
+                      className="h-9 px-2"
+                    />
+                    <div className="flex justify-center">
+                      <Checkbox
+                        checked={!!p.isBreak}
+                        onCheckedChange={v => setPeriodField(i, "isBreak", !!v)}
+                        aria-label="Break — no lessons scheduled"
+                      />
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-destructive hover:text-destructive"
+                      onClick={() => removePeriodRow(i)}
+                      aria-label={`Remove ${periodLabel(p)}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                  {inUse > 0 && (
+                    <p className="text-[10px] text-yellow-600 dark:text-yellow-500 pl-1">
+                      {inUse} scheduled {inUse === 1 ? "lesson uses" : "lessons use"} this period —
+                      removing or renumbering it will leave {inUse === 1 ? "it" : "them"} off the grid.
+                    </p>
+                  )}
+                </div>
+              )
+            })}
+
+            <Button variant="outline" size="sm" className="mt-1 self-start" onClick={addPeriodRow}>
+              <Plus className="mr-2 h-4 w-4" /> Add period
+            </Button>
+          </div>
+
+          {periodsError && <p className="text-sm text-destructive px-1">{periodsError}</p>}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPeriodsOpen(false)} disabled={periodsSaving}>Cancel</Button>
+            <Button onClick={savePeriods} disabled={periodsSaving}>
+              {periodsSaving ? "Saving..." : "Save Periods"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

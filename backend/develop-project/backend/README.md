@@ -57,9 +57,9 @@ API is now available at **http://localhost:8000/api/**
 | Email | Password | Role |
 |---|---|---|
 | admin@farukaktas.edu | admin123 | Super Admin |
-| hauwa@farukaktas.edu | admin123 | Admin |
-| asani@farukaktas.edu | teacher123 | Teacher |
-| musa@farukaktas.edu | accountant123 | Accountant |
+| zawadi@farukaktas.edu | admin123 | Admin |
+| jhassan@farukaktas.edu | teacher123 | Teacher |
+| omari@farukaktas.edu | accountant123 | Accountant |
 
 ---
 

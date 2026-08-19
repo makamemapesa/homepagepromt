@@ -3,6 +3,7 @@
 import { useEffect } from "react"
 import { usePathname } from "next/navigation"
 import Link from "next/link"
+import { useSiteBranding } from "@/hooks/use-site-branding"
 import Image from "next/image"
 import {
   Heart, Users, GraduationCap, Star, Sparkles, CheckCircle2,
@@ -23,6 +24,7 @@ const NAV_LINKS = [
 ]
 
 export default function SupportPage() {
+  const branding = useSiteBranding()
   const pathname = usePathname()
 
   useEffect(() => {
@@ -85,8 +87,7 @@ export default function SupportPage() {
       >
         <div className="mx-auto max-w-7xl px-6 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3 group">
-            <Image
-              src="/farouk-logo.jpeg" alt="AL NAMAA ACADEMY" width={36} height={36}
+            <img src={branding.logo} alt={branding.schoolName} style={{ width: 36, height: 36 }}
               className="rounded-lg object-cover ring-1 ring-white/10 group-hover:ring-accent/50 transition-all duration-300"
             />
             <div className="hidden sm:block">
@@ -594,7 +595,7 @@ export default function SupportPage() {
       <footer className="py-10" style={{ background: "oklch(0.10 0.03 250)" }}>
         <div className="mx-auto max-w-7xl px-6 flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-3">
-            <Image src="/farouk-logo.jpeg" alt="FAMS" width={36} height={36}
+            <img src={branding.logo} alt={branding.schoolName} style={{ width: 36, height: 36 }}
               className="rounded-lg object-cover ring-1 ring-white/10" />
             <div>
               <p className="text-[13px] font-bold text-white leading-tight">Faruk Aktas Muslim School</p>

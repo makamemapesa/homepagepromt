@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { usePathname } from "next/navigation"
 import Link from "next/link"
+import { useSiteBranding } from "@/hooks/use-site-branding"
 import Image from "next/image"
 import {
   GraduationCap, Users, BookOpen, Shield, ArrowRight,
@@ -14,6 +15,13 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+
+/** Icon choices offered by the homepage editor for feature cards. */
+const FEATURE_ICONS: Record<string, any> = {
+  book: BookOpen, heart: Heart, users: Users, shield: Shield,
+  globe: Globe, award: Award, star: Star, sparkles: Sparkles,
+  graduation: GraduationCap, check: CheckCircle2,
+}
 
 const NAV_LINKS = [
   { label: "About",       href: "/#about" },
@@ -27,6 +35,7 @@ const NAV_LINKS = [
 ]
 
 export default function HomePage() {
+  const branding = useSiteBranding()
   const pathname = usePathname()
   const [videoPlaying, setVideoPlaying] = useState(false)
   const [admissionWindow, setAdmissionWindow] = useState<any>(null)
@@ -39,6 +48,13 @@ export default function HomePage() {
   const [heroVideoUrl, setHeroVideoUrl] = useState("https://www.youtube.com/embed/0t9kQG1Dqv0?rel=0&modestbranding=1&color=white")
   const [heroVideoUploadUrl, setHeroVideoUploadUrl] = useState("")
   const [heroImageUrl, setHeroImageUrl] = useState("https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=1600&q=85")
+  // Everything else on this page is managed under Dashboard → Homepage. Each
+  // block falls back to the original copy until an administrator edits it.
+  const [content, setContent] = useState<Record<string, any>>({})
+  const txt = (key: string, fallback: string) =>
+    (content[key] ?? "").toString().trim() || fallback
+  const list = <T,>(key: string, fallback: T[]): T[] =>
+    Array.isArray(content[key]) && content[key].length ? content[key] : fallback
 
   useEffect(() => {
     // -- 1. Scroll reveal -------------------------------------
@@ -139,6 +155,7 @@ export default function HomePage() {
     fetch(`${BASE_URL}/api/homepage-content/`)
       .then(r => { if (!r.ok) throw r; return r.json() })
       .then((d) => {
+        setContent(d || {})
         if (d.hero_title) setHeroTitle(d.hero_title)
         if (d.hero_subtitle) setHeroSubtitle(d.hero_subtitle)
         if (d.hero_description) setHeroDescription(d.hero_description)
@@ -175,13 +192,12 @@ export default function HomePage() {
       >
         <div className="mx-auto max-w-7xl px-6 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3 group">
-            <Image
-              src="/farouk-logo.jpeg" alt="AL NAMAA ACADEMY" width={36} height={36}
+            <img src={branding.logo} alt={branding.schoolName} style={{ width: 36, height: 36 }}
               className="rounded-lg object-cover ring-1 ring-white/10 group-hover:ring-accent/50 transition-all duration-300"
             />
             <div className="hidden sm:block">
-              <p className="text-[13px] font-bold text-white leading-tight">AL NAMAA ACADEMY</p>
-              <p className="text-[10px] text-white/35 tracking-[0.15em] uppercase">Zanzibar &bull; Expect Success</p>
+              <p className="text-[13px] font-bold text-white leading-tight">{branding.schoolName}</p>
+              <p className="text-[10px] text-white/35 tracking-[0.15em] uppercase">{branding.tagline}</p>
             </div>
           </Link>
 
@@ -271,7 +287,7 @@ export default function HomePage() {
                   ? "Applications Open — Apply Now"
                   : windowClosed
                   ? "Applications Currently Closed"
-                  : "Admissions · 2026 / 2027"}
+                  : txt("hero_badge_text", "Admissions · 2026 / 2027")}
               </span>
             </div>
 
@@ -295,27 +311,27 @@ export default function HomePage() {
                 <Button
                   className="h-12 px-8 text-sm font-bold shadow-2xl shadow-accent/30 text-white"
                   style={{ background: "var(--accent)" }}>
-                  Apply for Admission <ArrowRight className="ml-2 h-4 w-4" />
+                  {txt("hero_primary_cta", "Apply for Admission")} <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </Link>
               <Link href="#about">
                 <Button variant="outline"
                   className="h-12 px-8 text-sm font-semibold border-white/18 text-white/80 hover:bg-white/8 hover:text-white bg-transparent">
-                  Discover More
+                  {txt("hero_secondary_cta", "Discover More")}
                 </Button>
               </Link>
             </div>
 
             {/* Stats row */}
             <div className="hero-anim-6 mt-12 flex flex-wrap items-center gap-x-10 gap-y-5 border-t border-white/8 pt-8">
-              {[
-                { num: "3", label: "Education Levels" },
-                { num: "100%", label: "Accredited" },
-                { num: "ZEC", label: "Aligned" },
-                { num: "NECTA", label: "Exam Board" },
-              ].map((s) => (
-                <div key={s.label}>
-                  <p className="text-2xl font-black text-accent" style={{ fontFamily: "var(--font-heading)" }}>{s.num}</p>
+              {list<any>("hero_stats", [
+                { value: "3", label: "Education Levels" },
+                { value: "100%", label: "Accredited" },
+                { value: "ZEC", label: "Aligned" },
+                { value: "NECTA", label: "Exam Board" },
+              ]).map((s, i) => (
+                <div key={`${s.label}-${i}`}>
+                  <p className="text-2xl font-black text-accent" style={{ fontFamily: "var(--font-heading)" }}>{s.value}</p>
                   <p className="text-[11px] text-white/35 mt-0.5 tracking-wide">{s.label}</p>
                 </div>
               ))}
@@ -391,12 +407,12 @@ export default function HomePage() {
       <section className="bg-card border-b border-border">
         <div className="mx-auto max-w-7xl px-6">
           <div className="grid grid-cols-2 divide-x divide-border sm:grid-cols-4">
-            {[
+            {list<any>("credentials", [
               { label: "Reg. No.",          value: "P 10082026" },
               { label: "ZRB Number",        value: "Z052610299" },
               { label: "TIN",               value: "175-002-324" },
               { label: "Business License",  value: "BSL-SP20025-2026" },
-            ].map((item) => (
+            ]).map((item) => (
               <div key={item.label} className="py-4 px-5 group cursor-default hover:bg-secondary/60 transition-colors duration-200">
                 <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.15em]">{item.label}</p>
                 <p className="text-sm font-bold text-foreground tabular-nums mt-0.5 group-hover:text-primary transition-colors">{item.value}</p>
@@ -415,26 +431,21 @@ export default function HomePage() {
 
             {/* Left � content */}
             <div className="reveal-left order-2 lg:order-1">
-              <p className="text-[11px] font-black text-accent uppercase tracking-[0.22em] mb-5">About Our School</p>
+              <p className="text-[11px] font-black text-accent uppercase tracking-[0.22em] mb-5">{txt("about_label", "About Our School")}</p>
               <h2 className="text-4xl lg:text-5xl font-black text-foreground leading-[1.08] text-balance"
                 style={{ fontFamily: "var(--font-heading)" }}>
-                Excellence Through<br />
-                <span className="text-primary">Knowledge &amp; Character</span>
+                {txt("about_title", "Excellence Through Knowledge & Character")}
               </h2>
               <div className="mt-6 space-y-4">
-                <p className="text-muted-foreground leading-[1.8] text-[15px]">
-                  Located in Kisauni, West &ldquo;B&rdquo; District, Zanzibar, AL NAMAA ACADEMY
-                  delivers high-quality education grounded in Islamic values. Our model
-                  combines rigorous academics with moral and spiritual development.
-                </p>
-                <p className="text-muted-foreground leading-[1.8] text-[15px]">
-                  Serving students from Nursery through Secondary level, we follow the ZEC
-                  Framework and NECTA curriculum &mdash; ensuring students are nationally
-                  competitive and globally prepared.
-                </p>
+                {list<string>("about_paragraphs", [
+                  "Located in Kisauni, West “B” District, Zanzibar, AL NAMAA ACADEMY delivers high-quality education grounded in Islamic values. Our model combines rigorous academics with moral and spiritual development.",
+                  "Serving students from Nursery through Secondary level, we follow the ZEC Framework and NECTA curriculum — ensuring students are nationally competitive and globally prepared.",
+                ]).map((para, i) => (
+                  <p key={i} className="text-muted-foreground leading-[1.8] text-[15px]">{para}</p>
+                ))}
               </div>
               <div className="mt-6 flex flex-wrap gap-2">
-                {["ZEC Framework", "NECTA Aligned", "Islamic Values", "Ministry Accredited", "Holistic Growth"].map((tag) => (
+                {list<string>("about_highlights", ["ZEC Framework", "NECTA Aligned", "Islamic Values", "Ministry Accredited", "Holistic Growth"]).map((tag) => (
                   <span key={tag}
                     className="px-3 py-1.5 rounded-lg bg-secondary border border-border text-[12px] font-semibold text-foreground hover:border-primary/30 hover:bg-primary/5 transition-colors cursor-default">
                     {tag}
@@ -444,7 +455,7 @@ export default function HomePage() {
               <div className="mt-8">
                 <Link href="#admissions">
                   <Button className="h-11 px-7 text-sm font-semibold shadow-lg shadow-primary/15">
-                    Apply for Admission <ArrowRight className="ml-2 h-4 w-4" />
+                    {txt("hero_primary_cta", "Apply for Admission")} <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
                 </Link>
               </div>
@@ -481,40 +492,36 @@ export default function HomePage() {
               style={{ background: "oklch(0.65 0.18 155 / 0.12)" }} />
             <div className="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
               <div>
-                <p className="text-[11px] font-black text-accent uppercase tracking-[0.22em] mb-5">Inclusive Education &amp; Sponsorship</p>
+                <p className="text-[11px] font-black text-accent uppercase tracking-[0.22em] mb-5">{txt("support_label", "Inclusive Education & Sponsorship")}</p>
                 <h2 className="text-3xl lg:text-4xl font-black text-white leading-[1.07] mb-5"
                   style={{ fontFamily: "var(--font-heading)" }}>
-                  Educating with Compassion,<br />
-                  <span className="text-accent">Building Every Child&rsquo;s Future</span>
+                  {txt("support_title", "Educating with Compassion, Building Every Child’s Future")}
                 </h2>
                 <p className="text-[15px] text-white/50 leading-[1.85]">
-                  Through the generosity of donors and partners under the Muzdalifa Community,
-                  30% of our students receive 100% full sponsorship — ensuring no child is
-                  ever denied access to education because of financial hardship.
+                  {txt("support_description", "Through the generosity of donors and partners under the Muzdalifa Community, 30% of our students receive 100% full sponsorship — ensuring no child is ever denied access to education because of financial hardship.")}
                 </p>
                 <div className="mt-8 flex flex-wrap gap-3">
                   <Link href="/support">
                     <Button className="h-11 px-7 text-sm font-bold shadow-xl shadow-accent/20 text-white"
                       style={{ background: "var(--accent)" }}>
-                      Learn About Our Support Programs <ArrowRight className="ml-2 h-4 w-4" />
+                      {txt("support_cta", "Learn About Our Support Programs")} <ArrowRight className="ml-2 h-4 w-4" />
                     </Button>
                   </Link>
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-4">
-                {[
-                  { num: "30%", label: "Students Fully Sponsored", count: 30, suffix: "%" },
-                  { num: "100%", label: "Tuition Coverage", count: 100, suffix: "%" },
-                  { num: "0", label: "Children Turned Away", count: null },
-                ].map((s) => (
+                {list<any>("support_stats", [
+                  { value: "30%", label: "Students Fully Sponsored" },
+                  { value: "100%", label: "Tuition Coverage" },
+                  { value: "0", label: "Children Turned Away" },
+                ]).map((s) => (
                   <div key={s.label} className="flex flex-col items-center text-center p-4 rounded-2xl border border-white/8"
                     style={{ background: "oklch(0.15 0.03 250)" }}>
                     <p
                       className="text-3xl font-black text-accent mb-1"
                       style={{ fontFamily: "var(--font-heading)" }}
-                      {...(s.count != null ? { "data-count": String(s.count), "data-suffix": s.suffix ?? "" } : {})}
                     >
-                      {s.num}
+                      {s.value}
                     </p>
                     <p className="text-[10px] text-white/40 leading-snug">{s.label}</p>
                   </div>
@@ -531,23 +538,21 @@ export default function HomePage() {
       <section className="py-10" style={{ background: "oklch(0.13 0.03 250)" }}>
         <div className="mx-auto max-w-7xl px-6">
           <div className="grid grid-cols-2 gap-10 sm:grid-cols-4">
-            {[
-              { num: "3",     label: "Education Levels",    sub: "Nursery &bull; Primary &bull; Secondary",  count: 3 },
-              { num: "100%",  label: "Government Accredited", sub: "Ministry of Education, Zanzibar",         count: 100, suffix: "%" },
-              { num: "ZEC",   label: "Curriculum Standard", sub: "Zanzibar Examinations Council",            count: null },
-              { num: "NECTA", label: "National Exam Board",  sub: "Tanzania & Zanzibar",                     count: null },
-
-            ].map((stat, i) => (
+            {list<any>("stats_banner", [
+              { value: "3",     label: "Education Levels",      sub: "Nursery • Primary • Secondary" },
+              { value: "100%",  label: "Government Accredited", sub: "Ministry of Education, Zanzibar" },
+              { value: "ZEC",   label: "Curriculum Standard",   sub: "Zanzibar Examinations Council" },
+              { value: "NECTA", label: "National Exam Board",   sub: "Tanzania & Zanzibar" },
+            ]).map((stat, i) => (
               <div key={stat.label} className={`reveal delay-${i * 100} border-l-2 border-accent/30 pl-5`}>
                 <p
                   className="text-4xl lg:text-5xl font-black text-accent"
                   style={{ fontFamily: "var(--font-heading)" }}
-                  {...(stat.count ? { "data-count": String(stat.count), "data-suffix": stat.suffix ?? "" } : {})}
                 >
-                  {stat.num}
+                  {stat.value}
                 </p>
                 <p className="text-sm font-bold text-white mt-2 leading-tight">{stat.label}</p>
-                <p className="text-[11px] text-white/35 mt-1" dangerouslySetInnerHTML={{ __html: stat.sub }} />
+                <p className="text-[11px] text-white/35 mt-1">{stat.sub}</p>
               </div>
             ))}
           </div>
@@ -560,55 +565,49 @@ export default function HomePage() {
       <section id="programs" className="py-12 lg:py-16 bg-secondary/40">
         <div className="mx-auto max-w-7xl px-6">
           <div className="mb-8">
-            <p className="reveal label-pill text-[11px] font-black text-accent uppercase tracking-[0.22em] mb-4">Academic Programs</p>
+            <p className="reveal label-pill text-[11px] font-black text-accent uppercase tracking-[0.22em] mb-4">{txt("programs_label", "Academic Programs")}</p>
             <h2 className="reveal delay-100 text-4xl lg:text-5xl font-black text-foreground leading-[1.08]"
               style={{ fontFamily: "var(--font-heading)" }}>
-              Three Levels of<br />Academic Excellence
+              {txt("programs_title", "Three Levels of Academic Excellence")}
             </h2>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {[
-              {
-                num: "01", level: "Nursery",   ages: "Early Childhood",     color: "bg-amber-500",
-                img: "https://images.unsplash.com/photo-1503454537195-1dcabb73ffb9?w=700&q=80",
-                desc: "Play-based and structured early childhood development. Building social, cognitive, and physical foundations for lifelong learning.",
+            {list<any>("programs", [
+              { number: "01", level: "Nursery", ages: "Early Childhood",
+                description: "Play-based and structured early childhood development. Building social, cognitive, and physical foundations for lifelong learning.",
                 phone: "+255 774 221 707",
-              },
-              {
-                num: "02", level: "Primary",   ages: "Foundation Stage",     color: "bg-primary",
-                img: "https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=700&q=80",
-                desc: "ZEC-aligned comprehensive curriculum developing literacy, numeracy, critical thinking, and Islamic moral education.",
+                image: "https://images.unsplash.com/photo-1503454537195-1dcabb73ffb9?w=700&q=80" },
+              { number: "02", level: "Primary", ages: "Foundation Stage",
+                description: "ZEC-aligned comprehensive curriculum developing literacy, numeracy, critical thinking, and Islamic moral education.",
                 phone: "+255 652 898 731",
-              },
-              {
-                num: "03", level: "Secondary", ages: "Advanced Studies",     color: "bg-accent",
-                img: "https://images.unsplash.com/photo-1516534775068-ba3e7458af70?w=700&q=80",
-                desc: "Rigorous NECTA preparation across sciences, humanities, and technical subjects &mdash; setting the stage for higher education.",
+                image: "https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=700&q=80" },
+              { number: "03", level: "Secondary", ages: "Advanced Studies",
+                description: "Rigorous NECTA preparation across sciences, humanities, and technical subjects — setting the stage for higher education.",
                 phone: "+255 777 397 422",
-              },
-            ].map((prog, i) => (
-              <div key={prog.level}
+                image: "https://images.unsplash.com/photo-1516534775068-ba3e7458af70?w=700&q=80" },
+            ]).map((prog, i) => (
+              <div key={`${prog.level}-${i}`}
                 className={`reveal delay-${i * 150} group tilt-card flex flex-col overflow-hidden rounded-2xl bg-card border border-border hover:shadow-2xl transition-all duration-300`}>
                 <div className="relative h-60 overflow-hidden">
-                  <Image src={prog.img} alt={prog.level} fill
+                  <Image src={prog.image} alt={prog.level} fill
                     className="object-cover group-hover:scale-105 transition-transform duration-700" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
                   {/* Number badge */}
                   <div className="absolute top-4 right-4 h-9 w-9 flex items-center justify-center rounded-xl bg-black/50 backdrop-blur-sm border border-white/10">
-                    <span className="text-xs font-black text-white">{prog.num}</span>
+                    <span className="text-xs font-black text-white">{prog.number}</span>
                   </div>
                   {/* Level label over bottom */}
                   <div className="absolute bottom-0 left-0 right-0 p-5">
                     <h3 className="text-xl font-black text-white" style={{ fontFamily: "var(--font-heading)" }}>
                       {prog.level} Education
                     </h3>
-                    <span className={`inline-block mt-1.5 px-2.5 py-0.5 rounded-full text-white text-[11px] font-bold ${prog.color}/80 backdrop-blur-sm`}
-                      dangerouslySetInnerHTML={{ __html: prog.ages }} />
+                    <span className="inline-block mt-1.5 px-2.5 py-0.5 rounded-full bg-primary/80 text-white text-[11px] font-bold backdrop-blur-sm">
+                      {prog.ages}
+                    </span>
                   </div>
                 </div>
                 <div className="flex flex-col flex-1 p-6">
-                  <p className="text-[14px] text-muted-foreground leading-[1.75] flex-1"
-                    dangerouslySetInnerHTML={{ __html: prog.desc }} />
+                  <p className="text-[14px] text-muted-foreground leading-[1.75] flex-1">{prog.description}</p>
                   <div className="mt-5 pt-4 border-t border-border flex items-center gap-3">
                     <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                       <Phone className="h-3.5 w-3.5 text-primary" />
@@ -631,23 +630,21 @@ export default function HomePage() {
           {/* Top: two-column header row � label+title left, description+badge right */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-end mb-8">
             <div className="reveal-left">
-              <p className="label-pill text-[11px] font-black text-accent uppercase tracking-[0.22em] mb-4">Why Choose Us</p>
+              <p className="label-pill text-[11px] font-black text-accent uppercase tracking-[0.22em] mb-4">{txt("features_label", "Why Choose Us")}</p>
               <h2 className="text-4xl lg:text-5xl font-black text-foreground leading-[1.06]"
                 style={{ fontFamily: "var(--font-heading)" }}>
-                Where Values Meet<br />
-                <span className="text-primary">Academic Excellence</span>
+                {txt("features_title", "Where Values Meet Academic Excellence")}
               </h2>
             </div>
             <div className="reveal-right flex flex-col gap-4 lg:pb-1">
               <p className="text-[15px] text-muted-foreground leading-[1.8]">
-                AL NAMAA ACADEMY stands apart through its unique integration of
-                Islamic moral education with internationally-recognised academic standards.
+                {txt("features_description", "AL NAMAA ACADEMY stands apart through its unique integration of Islamic moral education with internationally-recognised academic standards.")}
               </p>
               <div className="inline-flex items-center gap-3 px-4 py-3 rounded-xl bg-secondary border border-border w-fit">
                 <Award className="h-4 w-4 text-primary shrink-0" />
                 <div>
-                  <p className="text-[11px] font-black text-foreground">Ministry of Education &amp; Vocational Training, Zanzibar</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">Reg. No. P&nbsp;10082026 &bull; ZRB: Z052610299</p>
+                  <p className="text-[11px] font-black text-foreground">{txt("features_badge_title", "Ministry of Education & Vocational Training, Zanzibar")}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{txt("features_badge_subtitle", "Reg. No. P 10082026 • ZRB: Z052610299")}</p>
                 </div>
               </div>
             </div>
@@ -655,25 +652,25 @@ export default function HomePage() {
 
           {/* 3�2 balanced feature grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {[
-              { icon: BookOpen, title: "Academic Excellence",         ic: "text-blue-600",    bg: "bg-blue-50 dark:bg-blue-950/30",       border: "hover:border-blue-200 dark:hover:border-blue-800",   desc: "Rigorous ZEC and NECTA-aligned curriculum designed to push students beyond national benchmarks." },
-              { icon: Heart,    title: "Islamic Values & Ethics",     ic: "text-rose-600",    bg: "bg-rose-50 dark:bg-rose-950/30",       border: "hover:border-rose-200 dark:hover:border-rose-800",   desc: "Faith-centred learning integrating Quran, Islamic studies, and moral development into daily life." },
-              { icon: Users,    title: "Holistic Development",        ic: "text-violet-600",  bg: "bg-violet-50 dark:bg-violet-950/20",   border: "hover:border-violet-200 dark:hover:border-violet-800", desc: "Nurturing the intellectual, physical, social, emotional, and spiritual growth of every student." },
-              { icon: Shield,   title: "Safe & Modern Campus",        ic: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-950/20", border: "hover:border-emerald-200 dark:hover:border-emerald-800", desc: "Purpose-built facilities including laboratories, library, prayer spaces, and sport grounds." },
-              { icon: Globe,    title: "Inclusive Environment",       ic: "text-amber-600",   bg: "bg-amber-50 dark:bg-amber-950/20",     border: "hover:border-amber-200 dark:hover:border-amber-800", desc: "Equal opportunity learning where every student is equally valued and supported to succeed." },
-              { icon: Award,    title: "Fully Accredited",            ic: "text-primary",     bg: "bg-primary/8 dark:bg-primary/15",      border: "hover:border-primary/30",                            desc: "Officially recognised and regularly inspected by the Ministry of Education, Zanzibar." },
-            ].map((item, i) => (
+            {list<any>("features", [
+              { icon: "book",   title: "Academic Excellence",     description: "Rigorous ZEC and NECTA-aligned curriculum designed to push students beyond national benchmarks." },
+              { icon: "heart",  title: "Islamic Values & Ethics", description: "Faith-centred learning integrating Quran, Islamic studies, and moral development into daily life." },
+              { icon: "users",  title: "Holistic Development",    description: "Nurturing the intellectual, physical, social, emotional, and spiritual growth of every student." },
+              { icon: "shield", title: "Safe & Modern Campus",    description: "Purpose-built facilities including laboratories, library, prayer spaces, and sport grounds." },
+              { icon: "globe",  title: "Inclusive Environment",   description: "Equal opportunity learning where every student is equally valued and supported to succeed." },
+              { icon: "award",  title: "Fully Accredited",        description: "Officially recognised and regularly inspected by the Ministry of Education, Zanzibar." },
+            ]).map((item, i) => (
               <div key={i}
-                className={`reveal delay-${i * 60} group spotlight-card tilt-card flex flex-col gap-4 p-6 rounded-2xl border border-border bg-card ${item.border} hover:shadow-xl transition-all duration-300`}>
-                <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${item.bg}`}>
-                  <item.icon className={`h-5 w-5 ${item.ic}`} />
+                className={`reveal delay-${i * 60} group spotlight-card tilt-card flex flex-col gap-4 p-6 rounded-2xl border border-border bg-card hover:border-primary/30 hover:shadow-xl transition-all duration-300`}>
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/8">
+                  {(() => { const Icon = FEATURE_ICONS[item.icon] ?? Award; return <Icon className="h-5 w-5 text-primary" /> })()}
                 </div>
                 <div>
                   <h3 className="text-sm font-black text-foreground group-hover:text-primary transition-colors leading-snug mb-2"
                     style={{ fontFamily: "var(--font-heading)" }}>
                     {item.title}
                   </h3>
-                  <p className="text-[13px] text-muted-foreground leading-[1.7]">{item.desc}</p>
+                  <p className="text-[13px] text-muted-foreground leading-[1.7]">{item.description}</p>
                 </div>
               </div>
             ))}
@@ -687,10 +684,10 @@ export default function HomePage() {
       <section className="py-12 lg:py-16" style={{ background: "oklch(0.13 0.03 250)" }}>
         <div className="mx-auto max-w-7xl px-6">
           <div className="mb-8 text-center">
-            <p className="reveal label-pill text-[11px] font-black text-accent uppercase tracking-[0.22em] mb-4">Our Purpose</p>
+            <p className="reveal label-pill text-[11px] font-black text-accent uppercase tracking-[0.22em] mb-4">{txt("purpose_label", "Our Purpose")}</p>
             <h2 className="reveal delay-100 text-4xl lg:text-5xl font-black text-white leading-[1.08]"
               style={{ fontFamily: "var(--font-heading)" }}>
-              Vision &amp; Mission
+              {txt("purpose_title", "Vision & Mission")}
             </h2>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -702,12 +699,10 @@ export default function HomePage() {
               </div>
               <p className="text-[10px] font-black text-accent uppercase tracking-[0.25em] mb-2">Vision</p>
               <h3 className="text-xl font-black text-white mb-4" style={{ fontFamily: "var(--font-heading)" }}>
-                Pathways to Fulfilment
+                {txt("vision_title", "Pathways to Fulfilment")}
               </h3>
               <p className="text-white/55 leading-[1.8] text-[14px]">
-                To create pathways that assist every student in achieving their academic and
-                personal goals &mdash; empowering them to build fulfilling futures and contribute
-                meaningfully to the wider community.
+                {txt("vision_description", "To create pathways that assist every student in achieving their academic and personal goals — empowering them to build fulfilling futures and contribute meaningfully to the wider community.")}
               </p>
             </div>
             <div className="reveal-right group p-8 rounded-2xl border border-white/8 hover:border-primary/30 transition-all duration-300 hover:shadow-2xl"
@@ -718,12 +713,10 @@ export default function HomePage() {
               </div>
               <p className="text-[10px] font-black text-accent uppercase tracking-[0.25em] mb-2">Mission</p>
               <h3 className="text-xl font-black text-white mb-4" style={{ fontFamily: "var(--font-heading)" }}>
-                Excellence in Education
+                {txt("mission_title", "Excellence in Education")}
               </h3>
               <p className="text-white/55 leading-[1.8] text-[14px]">
-                To educate all students to the highest levels of achievement, preparing them
-                to be productive, ethical, and creative members of society equipped with the
-                knowledge, skills, and values needed for sustainable development.
+                {txt("mission_description", "To educate all students to the highest levels of achievement, preparing them to be productive, ethical, and creative members of society equipped with the knowledge, skills, and values needed for sustainable development.")}
               </p>
             </div>
           </div>
@@ -737,33 +730,32 @@ export default function HomePage() {
         <div className="mx-auto max-w-7xl px-6">
           <div className="flex items-end justify-between mb-10">
             <div>
-              <p className="reveal label-pill text-[11px] font-black text-accent uppercase tracking-[0.22em] mb-4">Campus Life</p>
+              <p className="reveal label-pill text-[11px] font-black text-accent uppercase tracking-[0.22em] mb-4">{txt("gallery_label", "Campus Life")}</p>
               <h2 className="reveal delay-100 text-4xl lg:text-5xl font-black text-foreground leading-[1.08]"
                 style={{ fontFamily: "var(--font-heading)" }}>
-                Life at FAMS
+                {txt("gallery_title", "Life at AL NAMAA")}
               </h2>
             </div>
           </div>
           {/* Asymmetric grid: 1 tall left + 4 small right */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 auto-rows-[180px] gap-3">
-            {[
-              { src: "https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=700&q=80", alt: "Collaborative Learning", tall: true },
-              { src: "https://images.unsplash.com/photo-1427504494785-3a9ca7044f45?w=500&q=80", alt: "Study Session",          tall: false },
-              { src: "https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=500&q=80", alt: "School Library",         tall: false },
-              { src: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=500&q=80", alt: "Science Laboratory",    tall: false },
-              { src: "https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=500&q=80", alt: "School Sports",         tall: false },
-              { src: "https://images.unsplash.com/photo-1509062522246-3755977927d7?w=500&q=80", alt: "Teacher &amp; Students", tall: false },
-            ].map((img, i) => (
-              <div key={img.alt}
+            {list<any>("gallery", [
+              { image: "https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=700&q=80", caption: "Collaborative Learning" },
+              { image: "https://images.unsplash.com/photo-1427504494785-3a9ca7044f45?w=500&q=80", caption: "Study Session" },
+              { image: "https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=500&q=80", caption: "School Library" },
+              { image: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=500&q=80", caption: "Science Laboratory" },
+              { image: "https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=500&q=80", caption: "School Sports" },
+              { image: "https://images.unsplash.com/photo-1509062522246-3755977927d7?w=500&q=80", caption: "Teacher & Students" },
+            ]).map((img, i) => (
+              <div key={`${img.caption}-${i}`}
                 className={`reveal delay-${(i % 4) * 50} group relative overflow-hidden rounded-2xl cursor-pointer
-                  ${img.tall ? "row-span-2 col-span-1" : ""}`}>
-                <Image src={img.src} alt={img.alt} fill
+                  ${i === 0 ? "row-span-2 col-span-1" : ""}`}>
+                <Image src={img.image} alt={img.caption} fill
                   className="object-cover group-hover:scale-108 transition-transform duration-700" style={{ transitionDuration: "700ms" }} />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors duration-400" />
                 <div className="absolute bottom-0 left-0 right-0 flex items-end p-4">
-                  <span className="text-[12px] font-bold text-white drop-shadow-lg"
-                    dangerouslySetInnerHTML={{ __html: img.alt }} />
+                  <span className="text-[12px] font-bold text-white drop-shadow-lg">{img.caption}</span>
                 </div>
               </div>
             ))}
@@ -784,22 +776,21 @@ export default function HomePage() {
             <div className="blob-2 absolute -bottom-10 left-20 w-56 h-56 rounded-full bg-black/10 blur-2xl pointer-events-none" />
             <div className="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
               <div>
-                <p className="text-[10px] font-black text-white/60 uppercase tracking-[0.25em] mb-3">Enroll Now</p>
+                <p className="text-[10px] font-black text-white/60 uppercase tracking-[0.25em] mb-3">{txt("admissions_label", "Enroll Now")}</p>
                 <h2 className="text-3xl lg:text-4xl font-black text-white leading-tight"
                   style={{ fontFamily: "var(--font-heading)" }}>
-                  Admissions Open<br />for 2026/2027
+                  {txt("admissions_title", "Admissions Open for 2026/2027")}
                 </h2>
                 <p className="mt-4 text-white/80 text-[14px] leading-[1.75]">
-                  Secure your child&apos;s place at AL NAMAA ACADEMY. Applications
-                  are now being accepted for all three educational levels.
+                  {txt("admissions_description", "Secure your child’s place at AL NAMAA ACADEMY. Applications are now being accepted for all three educational levels.")}
                 </p>
               </div>
               <div className="flex flex-col gap-3">
-                {[
+                {list<string>("admission_levels", [
                   "Nursery \u2014 Early Childhood Education",
                   "Primary \u2014 Foundation & Intermediate Learning",
                   "Secondary \u2014 Advanced Academic Studies",
-                ].map((item) => (
+                ]).map((item) => (
                   <div key={item} className="flex items-center gap-3">
                     <CheckCircle2 className="h-4 w-4 text-white shrink-0" />
                     <span className="text-sm text-white/90 font-medium">{item}</span>
@@ -809,7 +800,7 @@ export default function HomePage() {
                   <Link href="#contact">
                     <Button className="bg-white hover:bg-white/90 h-11 px-7 text-sm font-black shadow-xl"
                       style={{ color: "var(--accent)" }}>
-                      Contact Admissions <ArrowRight className="ml-2 h-4 w-4" />
+                      {txt("admissions_cta", "Contact Admissions")} <ArrowRight className="ml-2 h-4 w-4" />
                     </Button>
                   </Link>
                 </div>
@@ -886,7 +877,7 @@ export default function HomePage() {
               <p className="reveal label-pill text-[11px] font-black text-accent uppercase tracking-[0.22em] mb-4">Latest</p>
               <h2 className="reveal delay-100 text-4xl lg:text-5xl font-black text-foreground leading-[1.06]"
                 style={{ fontFamily: "var(--font-heading)" }}>
-                News &amp; Updates
+                {txt("news_section_title", "News & Updates")}
               </h2>
             </div>
           </div>
@@ -1005,20 +996,22 @@ export default function HomePage() {
             <div className="reveal-left rounded-2xl border border-border bg-card overflow-hidden flex flex-col">
               {/* Top accent strip */}
               <div className="px-7 py-6 border-b border-border" style={{ background: "var(--accent)" }}>
-                <p className="text-[11px] font-black text-white/70 uppercase tracking-[0.22em] mb-1">Our Campus</p>
+                <p className="text-[11px] font-black text-white/70 uppercase tracking-[0.22em] mb-1">{txt("contact_label", "Our Campus")}</p>
                 <p className="text-lg font-black text-white" style={{ fontFamily: "var(--font-heading)" }}>
-                  Kisauni, West &ldquo;B&rdquo; District
+                  {txt("contact_area", "Kisauni, West “B” District")}
                 </p>
-                <p className="text-sm text-white/75 mt-0.5">Zanzibar, Tanzania</p>
+                <p className="text-sm text-white/75 mt-0.5">{txt("contact_region", "Zanzibar, Tanzania")}</p>
               </div>
 
               {/* Contact rows */}
               <div className="flex flex-col flex-1 divide-y divide-border">
                 {[
-                  { icon: Phone, label: "Nursery Enquiries",  value: "+255 774 221 707" },
-                  { icon: Phone, label: "Primary Enquiries",  value: "+255 652 898 731" },
-                  { icon: Phone, label: "Secondary Enquiries", value: "+255 777 397 422" },
-                  { icon: Clock, label: "Office Hours",        value: "Monday \u2013 Friday \u00b7 8:00 AM \u2013 4:00 PM" },
+                  ...list<any>("contact_phones", [
+                    { label: "Nursery Enquiries",   value: "+255 774 221 707" },
+                    { label: "Primary Enquiries",   value: "+255 652 898 731" },
+                    { label: "Secondary Enquiries", value: "+255 777 397 422" },
+                  ]).map((c: any) => ({ ...c, icon: Phone })),
+                  { icon: Clock, label: "Office Hours", value: txt("contact_hours", "Monday – Friday · 8:00 AM – 4:00 PM") },
                 ].map((c) => (
                   <div key={c.label} className="flex items-center gap-4 px-7 py-4 hover:bg-secondary/50 transition-colors group">
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/8 group-hover:bg-primary transition-colors duration-300">
@@ -1035,7 +1028,7 @@ export default function HomePage() {
               {/* Bottom CTA strip */}
               <div className="px-7 py-5 border-t border-border bg-secondary/30">
                 <p className="text-[12px] text-muted-foreground">
-                  Reg. No. P&nbsp;10082026 &bull; ZRB: Z052610299 &bull; TIN: 175-002-324
+                  {txt("contact_registration_line", "Reg. No. P 10082026 • ZRB: Z052610299 • TIN: 175-002-324")}
                 </p>
               </div>
             </div>
@@ -1097,20 +1090,21 @@ export default function HomePage() {
             {/* Brand column */}
             <div className="md:col-span-4">
               <div className="flex items-center gap-3 mb-5">
-                <Image src="/farouk-logo.jpeg" alt="FAMS" width={42} height={42}
+                <img src={branding.logo} alt={branding.schoolName} style={{ width: 42, height: 42 }}
                   className="rounded-xl object-cover ring-1 ring-white/10" />
                 <div>
-                  <p className="text-[13px] font-bold text-white leading-tight">AL NAMAA ACADEMY</p>
-                  <p className="text-[10px] text-white/35 mt-0.5">Kisauni, Zanzibar &bull; Est. 2020</p>
+                  <p className="text-[13px] font-bold text-white leading-tight">{branding.schoolName}</p>
+                  <p className="text-[10px] text-white/35 mt-0.5">{txt("footer_established", "Kisauni, Zanzibar • Est. 2020")}</p>
                 </div>
               </div>
               <p className="text-[12px] text-white/35 leading-[1.8] mb-5">
-                &ldquo;Expect Success&rdquo; &mdash; Officially recognised by the Ministry of Education
-                and Vocational Training, Zanzibar. Delivering excellence through Islamic values.
+                {txt("footer_description", "“Expect Success” — Officially recognised by the Ministry of Education and Vocational Training, Zanzibar. Delivering excellence through Islamic values.")}
               </p>
               <div className="space-y-1 text-[11px] text-white/20">
-                <p>Reg. No. P 10082026 &nbsp;|&nbsp; ZRB: Z052610299</p>
-                <p>TIN: 175-002-324 &nbsp;|&nbsp; BSL-SP20025-2026/51066</p>
+                {list<string>("footer_registration_lines", [
+                  "Reg. No. P 10082026  |  ZRB: Z052610299",
+                  "TIN: 175-002-324  |  BSL-SP20025-2026/51066",
+                ]).map((line, i) => <p key={i}>{line}</p>)}
               </div>
             </div>
 
@@ -1147,20 +1141,22 @@ export default function HomePage() {
                 <div className="flex items-start gap-3">
                   <MapPin className="h-3.5 w-3.5 text-accent shrink-0 mt-0.5" />
                   <span className="text-[12px] text-white/40 leading-relaxed">
-                    Kisauni, West &ldquo;B&rdquo; District,<br />Zanzibar, Tanzania
+                    {txt("contact_area", "Kisauni, West “B” District")},<br />{txt("contact_region", "Zanzibar, Tanzania")}
                   </span>
                 </div>
                 <div className="flex items-start gap-3">
                   <Phone className="h-3.5 w-3.5 text-accent shrink-0 mt-0.5" />
                   <div className="text-[12px] text-white/40 space-y-1">
-                    <p>Nursery: +255 774 221 707</p>
-                    <p>Primary: +255 652 898 731</p>
-                    <p>Secondary: +255 777 397 422</p>
+                    {list<any>("contact_phones", [
+                      { label: "Nursery Enquiries",   value: "+255 774 221 707" },
+                      { label: "Primary Enquiries",   value: "+255 652 898 731" },
+                      { label: "Secondary Enquiries", value: "+255 777 397 422" },
+                    ]).map((c, i) => <p key={i}>{c.label}: {c.value}</p>)}
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
                   <Clock className="h-3.5 w-3.5 text-accent shrink-0" />
-                  <span className="text-[12px] text-white/40">Mon &ndash; Fri: 8:00 AM &ndash; 4:00 PM</span>
+                  <span className="text-[12px] text-white/40">{txt("contact_hours", "Monday – Friday · 8:00 AM – 4:00 PM")}</span>
                 </div>
               </div>
             </div>
@@ -1168,7 +1164,7 @@ export default function HomePage() {
 
           <div className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-3">
             <p className="text-[11px] text-white/20">
-              &copy; 2026 AL NAMAA ACADEMY. All rights reserved.
+              {txt("footer_copyright", "© 2026 AL NAMAA ACADEMY. All rights reserved.")}
             </p>
             <p className="text-[11px] font-black text-white/15 tracking-[0.3em] uppercase">
               &ldquo;Expect Success&rdquo;

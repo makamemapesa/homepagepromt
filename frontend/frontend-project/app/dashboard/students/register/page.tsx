@@ -50,6 +50,8 @@ export default function RegisterStudentPage() {
   }, [user, authLoading])
   const [donorNumber, setDonorNumber] = useState("")
   const [isOrphan, setIsOrphan] = useState(false)
+  const [hasDisability, setHasDisability] = useState(false)
+  const [disabilityDetails, setDisabilityDetails] = useState("")
   const [form, setForm] = useState({
     firstName: "", lastName: "", middleName: "", dateOfBirth: "",
     gender: "", bloodGroup: "", religion: "", stateOfOrigin: "", address: "",
@@ -58,6 +60,15 @@ export default function RegisterStudentPage() {
     admissionClass: "", academicSession: "2026", admissionDate: "",
     studentType: "Day", previousSchool: "", previousClass: "", regNo: "",
   })
+  // Additional guardians beyond the main contact above — a father, uncle or
+  // elder brother. Each becomes a guardian record that can be given its own
+  // parent-portal login from User Management.
+  const EMPTY_GUARDIAN = { fullName: "", relationship: "", phone: "", email: "", occupation: "" }
+  const [extraGuardians, setExtraGuardians] = useState<typeof EMPTY_GUARDIAN[]>([])
+  const addGuardian = () => setExtraGuardians(prev => [...prev, { ...EMPTY_GUARDIAN }])
+  const removeGuardian = (i: number) => setExtraGuardians(prev => prev.filter((_, idx) => idx !== i))
+  const setGuardian = (i: number, key: string, value: string) =>
+    setExtraGuardians(prev => prev.map((g, idx) => idx === i ? { ...g, [key]: value } : g))
   const [emergencyContacts, setEmergencyContacts] = useState([{ name: "", phone: "", relationship: "" }])
   const addEmergencyContact = () => setEmergencyContacts(prev => [...prev, { name: "", phone: "", relationship: "" }])
   const removeEmergencyContact = (i: number) => setEmergencyContacts(prev => prev.filter((_, idx) => idx !== i))
@@ -93,6 +104,11 @@ export default function RegisterStudentPage() {
       setStep(1)
       return
     }
+    if (hasDisability && !disabilityDetails.trim()) {
+      setSubmitError("Please describe the disability and any support the student needs.")
+      setStep(1)
+      return
+    }
     if (!form.admissionClass || !form.admissionDate || !form.regNo) {
       setSubmitError("Please fill in all required academic fields (class, admission date, reg. number).")
       setStep(3)
@@ -122,6 +138,14 @@ export default function RegisterStudentPage() {
         return
       }
     }
+    for (const [i, g] of extraGuardians.entries()) {
+      if (!g.fullName.trim() && !g.phone.trim() && !g.relationship) continue
+      if (!g.fullName.trim() || !g.phone.trim() || !g.relationship) {
+        setSubmitError(`Additional guardian ${i + 1} needs a full name, relationship and phone number.`)
+        setStep(2)
+        return
+      }
+    }
     setSubmitting(true)
     try {
       const payload: any = {
@@ -135,6 +159,8 @@ export default function RegisterStudentPage() {
         stateOfOrigin: form.stateOfOrigin,
         residentialAddress: form.address,
         isOrphan,
+        hasDisability,
+        disabilityDetails: hasDisability ? disabilityDetails.trim() : "",
         studentClass: Number(form.admissionClass),
         academicSession: form.academicSession,
         admissionDate: form.admissionDate,
@@ -160,6 +186,17 @@ export default function RegisterStudentPage() {
       }
       const filledContacts = emergencyContacts.filter(ec => ec.name.trim() || ec.phone.trim())
       if (filledContacts.length > 0) payload.emergencyContacts = filledContacts
+      const filledGuardians = extraGuardians.filter(g => g.fullName.trim() || g.phone.trim())
+      if (filledGuardians.length > 0) {
+        payload.guardians = filledGuardians.map(g => ({
+          fullName: g.fullName.trim(),
+          relationship: g.relationship,
+          phone: g.phone.trim(),
+          email: g.email.trim(),
+          occupation: g.occupation.trim(),
+          isPrimary: false,
+        }))
+      }
       if (hasDonor && selectedDonor) {
         payload.donor = Number(selectedDonor)
         payload.donorNumber = donorNumber
@@ -337,6 +374,39 @@ export default function RegisterStudentPage() {
                     </Label>
                   </div>
                 </div>
+                <div className="flex flex-col gap-2 md:col-span-2">
+                  <Label>Disability / Special Needs</Label>
+                  <div className="flex flex-col gap-3 rounded-lg border border-border px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <Checkbox
+                        id="hasDisability"
+                        checked={hasDisability}
+                        onCheckedChange={(v) => {
+                          setHasDisability(!!v)
+                          if (!v) setDisabilityDetails("")
+                        }}
+                      />
+                      <Label htmlFor="hasDisability" className="cursor-pointer font-normal">
+                        This student has a disability or special educational need
+                      </Label>
+                    </div>
+                    {hasDisability && (
+                      <div className="flex flex-col gap-2">
+                        <Label htmlFor="disabilityDetails">Details *</Label>
+                        <Textarea
+                          id="disabilityDetails"
+                          rows={3}
+                          placeholder="Describe the disability, support needs and any accommodations required (e.g. hearing impairment — needs front-row seating and written instructions)"
+                          value={disabilityDetails}
+                          onChange={e => setDisabilityDetails(e.target.value)}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Kept confidential and shared only with staff supporting this student.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div className="mt-6 flex justify-end">
@@ -472,6 +542,64 @@ export default function RegisterStudentPage() {
                   <Textarea placeholder="Enter home address" rows={3} value={form.homeAddress} onChange={e => setField("homeAddress", e.target.value)} disabled={parentMode === "existing" && !!parentUserId && !!form.homeAddress} className={parentMode === "existing" && !!parentUserId && !!form.homeAddress ? "bg-muted text-muted-foreground" : ""} />
                 </div>
               </div>
+
+              <Separator className="my-6" />
+
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Additional Guardians</p>
+                  <p className="text-xs text-muted-foreground/80">
+                    Add the father, uncle or elder brother alongside the main contact. Each can be
+                    given their own parent-portal login afterwards.
+                  </p>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={addGuardian}>
+                  <PlusCircle className="h-4 w-4 mr-1" /> Add Guardian
+                </Button>
+              </div>
+              {extraGuardians.map((g, i) => (
+                <div key={i} className="rounded-lg border border-border p-4 mb-3 relative">
+                  <button type="button" onClick={() => removeGuardian(i)} className="absolute top-3 right-3 text-muted-foreground hover:text-destructive">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                  <p className="text-xs font-semibold text-muted-foreground mb-3">Guardian {i + 2}</p>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div className="flex flex-col gap-2">
+                      <Label>Full Name *</Label>
+                      <Input placeholder="e.g. Said Juma" value={g.fullName} onChange={e => setGuardian(i, "fullName", e.target.value)} />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Label>Relationship *</Label>
+                      <Select value={g.relationship} onValueChange={v => setGuardian(i, "relationship", v)}>
+                        <SelectTrigger><SelectValue placeholder="Select relationship" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Father">Father</SelectItem>
+                          <SelectItem value="Mother">Mother</SelectItem>
+                          <SelectItem value="Uncle">Uncle</SelectItem>
+                          <SelectItem value="Aunt">Aunt</SelectItem>
+                          <SelectItem value="Brother">Brother</SelectItem>
+                          <SelectItem value="Sister">Sister</SelectItem>
+                          <SelectItem value="Grandfather">Grandfather</SelectItem>
+                          <SelectItem value="Grandmother">Grandmother</SelectItem>
+                          <SelectItem value="Guardian">Guardian</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Label>Phone *</Label>
+                      <Input type="tel" placeholder="+255 XXX XXX XXX" value={g.phone} onChange={e => setGuardian(i, "phone", e.target.value)} />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Label>Email</Label>
+                      <Input type="email" placeholder="Used for their portal login" value={g.email} onChange={e => setGuardian(i, "email", e.target.value)} />
+                    </div>
+                    <div className="flex flex-col gap-2 md:col-span-2">
+                      <Label>Occupation</Label>
+                      <Input placeholder="Enter occupation" value={g.occupation} onChange={e => setGuardian(i, "occupation", e.target.value)} />
+                    </div>
+                  </div>
+                </div>
+              ))}
 
               <Separator className="my-6" />
 

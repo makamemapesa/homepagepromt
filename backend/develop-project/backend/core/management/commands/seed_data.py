@@ -2,6 +2,8 @@
 Seed the database with Tanzanian school data for FISS.
 Run with: python manage.py seed_data
 """
+import sys
+
 from django.core.management.base import BaseCommand
 from django.contrib.auth.models import User
 from django.utils import timezone
@@ -12,6 +14,12 @@ class Command(BaseCommand):
     help = "Populate the database with Tanzanian school data for FISS"
 
     def handle(self, *args, **options):
+        # The progress output uses check marks; a default Windows console is
+        # cp1252 and raises UnicodeEncodeError on them.
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except (AttributeError, OSError):
+            pass
         self.stdout.write("Seeding database...")
         self._seed_school_settings()
         self._seed_subjects()
@@ -229,7 +237,38 @@ class Command(BaseCommand):
                     "nationality": s["nationality"],
                 },
             )
-        self.stdout.write("  ✓ Students")
+
+        # Guardians: a mother for everyone as the main contact, plus a father on
+        # every second student so the multi-guardian portal flow has real data.
+        for index, s in enumerate(students_data):
+            student = Student.objects.filter(reg_no=s["reg_no"]).first()
+            if not student:
+                continue
+            surname = s["last_name"]
+            ParentGuardian.objects.update_or_create(
+                student=student,
+                relationship="Mother",
+                defaults={
+                    "full_name": f"Mama {surname}",
+                    "phone": f"+2557{index:08d}",
+                    "email": f"mother.{s['reg_no'].split('/')[-1]}@example.com",
+                    "occupation": "Trader",
+                    "is_primary": True,
+                },
+            )
+            if index % 2 == 0:
+                ParentGuardian.objects.update_or_create(
+                    student=student,
+                    relationship="Father",
+                    defaults={
+                        "full_name": f"Baba {surname}",
+                        "phone": f"+2556{index:08d}",
+                        "email": f"father.{s['reg_no'].split('/')[-1]}@example.com",
+                        "occupation": "Teacher",
+                        "is_primary": False,
+                    },
+                )
+        self.stdout.write("  ✓ Students and guardians")
 
     # ── Fee Structure ────────────────────────────────────────────
     def _seed_fee_structure(self):
@@ -449,8 +488,10 @@ class Command(BaseCommand):
                 username=u["username"],
                 defaults={**u, "is_staff": is_staff, "is_superuser": is_superuser},
             )
-            if created:
-                user.set_password(password)
-                user.save()
+            # Always set the password, not just on creation: teacher accounts are
+            # created earlier by the Teacher signal with an unusable password, so
+            # a "created only" guard leaves the seeded logins unable to sign in.
+            user.set_password(password)
+            user.save()
             UserProfile.objects.update_or_create(user=user, defaults={"role": role})
         self.stdout.write("  ✓ Users (admin password: admin123)")

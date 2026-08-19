@@ -1,38 +1,28 @@
 from django.core.management.base import BaseCommand
 
+from core import role_sync
+
 
 class Command(BaseCommand):
-    help = "Create/link auth.User and UserProfile for existing Teacher records"
+    help = (
+        "Create/link auth.User and UserProfile for existing Teacher records. "
+        "For the full two-way sync (including Teacher records for teacher-role "
+        "users) use `manage.py sync_roles` instead."
+    )
 
     def handle(self, *args, **options):
         from academics.models import Teacher
-        from django.contrib.auth.models import User
-        from core.models import UserProfile
 
-        created = 0
-        updated = 0
+        synced = 0
         skipped = 0
 
-        for t in Teacher.objects.all():
-            email = (t.email or '').strip()
-            if not email:
-                self.stdout.write(f"Skipping Teacher id={t.id} missing email")
+        for teacher in Teacher.objects.all():
+            if not (teacher.email or "").strip():
+                self.stdout.write(f"Skipping Teacher id={teacher.id} missing email")
                 skipped += 1
                 continue
-            user = User.objects.filter(username=email).first()
-            if user:
-                profile, _ = UserProfile.objects.get_or_create(user=user)
-                if profile.role != 'teacher':
-                    profile.role = 'teacher'
-                    profile.save()
-                    updated += 1
-                else:
-                    skipped += 1
-            else:
-                user = User.objects.create_user(username=email, email=email)
-                user.set_unusable_password()
-                user.save()
-                UserProfile.objects.get_or_create(user=user, defaults={'role': 'teacher'})
-                created += 1
+            with role_sync.guard():
+                role_sync.sync_teacher_to_profile(teacher)
+            synced += 1
 
-        self.stdout.write(self.style.SUCCESS(f"Created: {created} Updated: {updated} Skipped: {skipped}"))
+        self.stdout.write(self.style.SUCCESS(f"Synced: {synced}  Skipped: {skipped}"))

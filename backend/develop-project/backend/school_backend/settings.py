@@ -5,6 +5,12 @@ import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# The security log handler below opens this file on startup, so the directory
+# has to exist before logging is configured — otherwise every manage.py command
+# dies with "Unable to configure handler 'security_file'" on a fresh checkout.
+LOG_DIR = BASE_DIR / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
 SECRET_KEY = config("SECRET_KEY", default="django-insecure-change-me-in-production")
 DEBUG = config("DEBUG", default=True, cast=bool)  # Default True for development
 
@@ -121,10 +127,9 @@ REST_FRAMEWORK = {
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ],
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    # Custom class: DRF ignores PAGE_SIZE_QUERY_PARAM / MAX_PAGE_SIZE in settings.
+    "DEFAULT_PAGINATION_CLASS": "core.pagination.StandardPagination",
     "PAGE_SIZE": 50,
-    "PAGE_SIZE_QUERY_PARAM": "page_size",
-    "MAX_PAGE_SIZE": 200,
     "DEFAULT_THROTTLE_CLASSES": [
         "rest_framework.throttling.AnonRateThrottle",
         "rest_framework.throttling.UserRateThrottle",
@@ -202,7 +207,7 @@ LOGGING = {
         "security_file": {
             "level": "WARNING",
             "class": "logging.handlers.RotatingFileHandler",
-            "filename": BASE_DIR / "logs" / "security.log",
+            "filename": LOG_DIR / "security.log",
             "maxBytes": 1024 * 1024 * 10,  # 10MB
             "backupCount": 5,
             "formatter": "verbose",

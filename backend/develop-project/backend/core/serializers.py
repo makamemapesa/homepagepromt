@@ -10,19 +10,32 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
 
 class HomePageContentSerializer(serializers.ModelSerializer):
+    """Every block on the public home page, in one payload.
+
+    `fields = "__all__"` deliberately: new content blocks become editable and
+    publicly readable the moment they are added to the model, instead of
+    silently going missing because someone forgot to extend a field list.
+    """
+    logo = serializers.SerializerMethodField()
+    hero_image_resolved = serializers.SerializerMethodField()
+
     class Meta:
         model = HomePageContent
-        fields = [
-            "id", "hero_title", "hero_subtitle", "hero_description",
-            "hero_image", "hero_image_upload", "hero_video_url", "hero_video_upload",
-            "hero_primary_cta", "hero_secondary_cta",
-            "about_title", "about_description", "about_highlights",
-            "news_section_title", "news_section_subtitle",
-            "featured_news_post", "news_cards",
-            "vision_title", "vision_description",
-            "mission_title", "mission_description", "updated_at",
-        ]
+        fields = "__all__"
         read_only_fields = ["id", "updated_at"]
+
+    def _absolute(self, file_field):
+        if not file_field:
+            return ""
+        request = self.context.get("request")
+        return request.build_absolute_uri(file_field.url) if request else file_field.url
+
+    def get_logo(self, obj):
+        """Uploaded logo wins over a pasted URL; empty means use the bundled one."""
+        return self._absolute(obj.logo_upload) or (obj.logo_url or "")
+
+    def get_hero_image_resolved(self, obj):
+        return self._absolute(obj.hero_image_upload) or (obj.hero_image or "")
 
 
 class UserSerializer(serializers.ModelSerializer):

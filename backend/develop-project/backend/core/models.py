@@ -2,6 +2,8 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 
+from . import homepage_defaults as hp
+
 
 def validate_grade_bands(value):
     """
@@ -21,6 +23,71 @@ def validate_grade_bands(value):
             float(band["min"])
         except (TypeError, ValueError):
             raise ValidationError(f"grade_bands[{i}].min must be a number, got {band['min']!r}.")
+
+
+def default_timetable_periods():
+    """The period structure a school starts with — every value is editable."""
+    return [
+        {"period": 1, "label": "Period 1", "start": "08:00", "end": "08:45", "is_break": False},
+        {"period": 2, "label": "Period 2", "start": "08:45", "end": "09:30", "is_break": False},
+        {"period": 3, "label": "Period 3", "start": "09:45", "end": "10:30", "is_break": False},
+        {"period": 4, "label": "Period 4", "start": "10:30", "end": "11:15", "is_break": False},
+        {"period": 5, "label": "Period 5", "start": "11:30", "end": "12:15", "is_break": False},
+        {"period": 6, "label": "Period 6", "start": "12:15", "end": "13:00", "is_break": False},
+    ]
+
+
+def _parse_clock(value, where):
+    """Accept "H:MM" or "HH:MM" and return minutes since midnight."""
+    text = str(value or "").strip()
+    parts = text.split(":")
+    if len(parts) != 2:
+        raise ValidationError(f"{where} must be a time like 08:45, got {value!r}.")
+    try:
+        hours, minutes = int(parts[0]), int(parts[1])
+    except (TypeError, ValueError):
+        raise ValidationError(f"{where} must be a time like 08:45, got {value!r}.")
+    if not (0 <= hours <= 23 and 0 <= minutes <= 59):
+        raise ValidationError(f"{where} must be a valid time of day, got {value!r}.")
+    return hours * 60 + minutes
+
+
+def validate_timetable_periods(value):
+    """
+    Validate the school's timetable period structure: a list of objects each
+    holding a 'period' number and a 'start'/'end' time, e.g.
+
+        {"period": 1, "label": "Period 1", "start": "08:00",
+         "end": "08:45", "is_break": false}
+    """
+    if not isinstance(value, list):
+        raise ValidationError("timetable_periods must be a list.")
+
+    seen = set()
+    for i, slot in enumerate(value):
+        if not isinstance(slot, dict):
+            raise ValidationError(f"timetable_periods[{i}] must be an object.")
+        for key in ("period", "start", "end"):
+            if key not in slot:
+                raise ValidationError(f"timetable_periods[{i}] is missing required key '{key}'.")
+        try:
+            number = int(slot["period"])
+        except (TypeError, ValueError):
+            raise ValidationError(
+                f"timetable_periods[{i}].period must be a whole number, got {slot['period']!r}."
+            )
+        if number < 1:
+            raise ValidationError(f"timetable_periods[{i}].period must be 1 or greater.")
+        if number in seen:
+            raise ValidationError(f"Period number {number} is used more than once.")
+        seen.add(number)
+
+        start = _parse_clock(slot["start"], f"timetable_periods[{i}].start")
+        end = _parse_clock(slot["end"], f"timetable_periods[{i}].end")
+        if end <= start:
+            raise ValidationError(
+                f"timetable_periods[{i}] ends at or before it starts ({slot['start']} – {slot['end']})."
+            )
 
 
 class UserProfile(models.Model):
@@ -62,6 +129,77 @@ class HomePageContent(models.Model):
     hero_image_upload = models.ImageField(upload_to="homepage/images/", null=True, blank=True)
     hero_video_upload = models.FileField(upload_to="homepage/videos/", null=True, blank=True)
 
+    # ── Site branding (nav, footer, login, dashboard) ────────────────────
+    logo_upload = models.ImageField(upload_to="homepage/logo/", null=True, blank=True)
+    logo_url = models.URLField(blank=True, default="")
+    school_name = models.CharField(max_length=120, default="AL NAMAA ACADEMY")
+    tagline = models.CharField(max_length=160, default="Zanzibar • Expect Success")
+
+    # ── Hero extras ──────────────────────────────────────────────────────
+    hero_badge_text = models.CharField(max_length=120, default="Admissions · 2026 / 2027")
+    hero_stats = models.JSONField(default=hp.hero_stats, blank=True)
+
+    # ── Credentials strip ────────────────────────────────────────────────
+    credentials = models.JSONField(default=hp.credentials, blank=True)
+
+    # ── About ────────────────────────────────────────────────────────────
+    about_label = models.CharField(max_length=120, default="About Our School")
+    about_paragraphs = models.JSONField(default=hp.about_paragraphs, blank=True)
+    about_images = models.JSONField(default=list, blank=True)
+
+    # ── Support / sponsorship teaser ─────────────────────────────────────
+    support_label = models.CharField(max_length=140, default="Inclusive Education & Sponsorship")
+    support_title = models.CharField(max_length=200, default="Educating with Compassion, Building Every Child’s Future")
+    support_description = models.TextField(default="Through the generosity of donors and partners under the Muzdalifa Community, 30% of our students receive 100% full sponsorship — ensuring no child is ever denied access to education because of financial hardship.")
+    support_cta = models.CharField(max_length=100, default="Learn About Our Support Programs")
+    support_stats = models.JSONField(default=hp.support_stats, blank=True)
+
+    # ── Stats banner ─────────────────────────────────────────────────────
+    stats_banner = models.JSONField(default=hp.stats_banner, blank=True)
+
+    # ── Programs ─────────────────────────────────────────────────────────
+    programs_label = models.CharField(max_length=120, default="Academic Programs")
+    programs_title = models.CharField(max_length=200, default="Three Levels of Academic Excellence")
+    programs = models.JSONField(default=hp.programs, blank=True)
+
+    # ── Why choose us ────────────────────────────────────────────────────
+    features_label = models.CharField(max_length=120, default="Why Choose Us")
+    features_title = models.CharField(max_length=200, default="Where Values Meet Academic Excellence")
+    features_description = models.TextField(default="AL NAMAA ACADEMY stands apart through its unique integration of Islamic moral education with internationally-recognised academic standards.")
+    features_badge_title = models.CharField(max_length=200, default="Ministry of Education & Vocational Training, Zanzibar")
+    features_badge_subtitle = models.CharField(max_length=200, default="Reg. No. P 10082026 • ZRB: Z052610299")
+    features = models.JSONField(default=hp.features, blank=True)
+
+    # ── Vision & mission section heading ─────────────────────────────────
+    purpose_label = models.CharField(max_length=120, default="Our Purpose")
+    purpose_title = models.CharField(max_length=200, default="Vision & Mission")
+
+    # ── Campus gallery ───────────────────────────────────────────────────
+    gallery_label = models.CharField(max_length=120, default="Campus Life")
+    gallery_title = models.CharField(max_length=200, default="Life at AL NAMAA")
+    gallery = models.JSONField(default=hp.gallery, blank=True)
+
+    # ── Admissions banner ────────────────────────────────────────────────
+    admissions_label = models.CharField(max_length=120, default="Enroll Now")
+    admissions_title = models.CharField(max_length=200, default="Admissions Open for 2026/2027")
+    admissions_description = models.TextField(default="Secure your child’s place at AL NAMAA ACADEMY. Applications are now being accepted for all three educational levels.")
+    admissions_cta = models.CharField(max_length=100, default="Contact Admissions")
+    admission_levels = models.JSONField(default=hp.admission_levels, blank=True)
+
+    # ── Contact ──────────────────────────────────────────────────────────
+    contact_label = models.CharField(max_length=120, default="Our Campus")
+    contact_area = models.CharField(max_length=160, default="Kisauni, West “B” District")
+    contact_region = models.CharField(max_length=160, default="Zanzibar, Tanzania")
+    contact_hours = models.CharField(max_length=160, default="Monday – Friday · 8:00 AM – 4:00 PM")
+    contact_registration_line = models.CharField(max_length=200, default="Reg. No. P 10082026 • ZRB: Z052610299 • TIN: 175-002-324")
+    contact_phones = models.JSONField(default=hp.contact_phones, blank=True)
+
+    # ── Footer ───────────────────────────────────────────────────────────
+    footer_established = models.CharField(max_length=120, default="Kisauni, Zanzibar • Est. 2020")
+    footer_description = models.TextField(default="“Expect Success” — Officially recognised by the Ministry of Education and Vocational Training, Zanzibar. Delivering excellence through Islamic values.")
+    footer_registration_lines = models.JSONField(default=list, blank=True)
+    footer_copyright = models.CharField(max_length=200, default="© 2026 AL NAMAA ACADEMY. All rights reserved.")
+
     class Meta:
         verbose_name = "Home Page Content"
         verbose_name_plural = "Home Page Content"
@@ -93,6 +231,13 @@ class SchoolSettings(models.Model):
     # Fully dynamic grade bands: [{"grade": "A", "min": 75, "remark": "Excellent"}, ...]
     # Sorted descending by min. The last entry is the lowest/fail grade.
     grade_bands = models.JSONField(default=list, blank=True, validators=[validate_grade_bands])
+    # The school's bell schedule: how many periods there are, what each is
+    # called and when it runs. Drives every timetable grid in the portal.
+    timetable_periods = models.JSONField(
+        default=default_timetable_periods,
+        blank=True,
+        validators=[validate_timetable_periods],
+    )
     security_settings = models.JSONField(default=dict, blank=True)
     notification_settings = models.JSONField(default=dict, blank=True)
 

@@ -824,17 +824,19 @@ export default function UsersPage() {
       <Dialog open={!!pendingDeleteTarget} onOpenChange={(open) => { if (!open) setPendingDeleteTarget(null) }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle style={{ fontFamily: "var(--font-heading)" }}>Delete Student &amp; Parent Record</DialogTitle>
+            <DialogTitle style={{ fontFamily: "var(--font-heading)" }}>Remove Guardian Record</DialogTitle>
             <DialogDescription>
-              This will permanently delete{" "}
-              <strong>{pendingDeleteTarget?.studentName}</strong> and their parent record for{" "}
-              <strong>{pendingDeleteTarget?.fullName}</strong>. This cannot be undone.
+              This removes the guardian record for{" "}
+              <strong>{pendingDeleteTarget?.fullName}</strong>
+              {pendingDeleteTarget?.studentName ? <> ({pendingDeleteTarget.studentName})</> : null}.
+              Any other guardians of this student are left untouched — but if this is the student&apos;s
+              only guardian, the student record is removed as well. This cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="mt-4">
             <Button variant="outline" onClick={() => setPendingDeleteTarget(null)}>Cancel</Button>
             <Button variant="destructive" onClick={handleDeletePendingParent} disabled={pendingDeleteLoading}>
-              {pendingDeleteLoading ? "Deleting…" : "Delete Student & Record"}
+              {pendingDeleteLoading ? "Removing…" : "Remove Record"}
             </Button>
           </DialogFooter>
         </DialogContent>

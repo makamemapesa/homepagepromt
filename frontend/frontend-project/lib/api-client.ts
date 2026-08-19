@@ -10,11 +10,21 @@ function toCamel(s: string) {
 function toSnake(s: string) {
   return s.replace(/([A-Z])/g, "_$1").toLowerCase()
 }
+/** Only plain `{...}` objects get their keys rewritten. */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object") return false
+  const proto = Object.getPrototypeOf(value)
+  return proto === Object.prototype || proto === null
+}
+
 function convertKeys(obj: unknown, fn: (s: string) => string): unknown {
   if (Array.isArray(obj)) return obj.map((v) => convertKeys(v, fn))
-  if (obj !== null && typeof obj === "object") {
+  // Blobs, Files, Dates and other class instances have no enumerable own keys,
+  // so rebuilding them from Object.entries() would hand back an empty object
+  // and silently destroy the payload (file downloads, for one).
+  if (isPlainObject(obj)) {
     return Object.fromEntries(
-      Object.entries(obj as Record<string, unknown>).map(([k, v]) => [fn(k), convertKeys(v, fn)])
+      Object.entries(obj).map(([k, v]) => [fn(k), convertKeys(v, fn)])
     )
   }
   return obj

@@ -48,8 +48,8 @@ class ExamMarkViewSet(viewsets.ModelViewSet):
             # Parents see only their children's marks
             from students.models import Student
             return ExamMark.objects.filter(
-                student__parent__user=user
-            ).select_related("student", "subject", "student_class")
+                student__guardians__user=user
+            ).select_related("student", "subject", "student_class").distinct()
         
         return ExamMark.objects.none()
 
@@ -79,7 +79,10 @@ class ExamMarkViewSet(viewsets.ModelViewSet):
             qs = qs.filter(term=term)
         if session:
             qs = qs.filter(academic_session=session)
-        types = sorted(qs.values_list("exam_type", flat=True).distinct())
+        # .order_by() clears ExamMark's Meta ordering — otherwise Django adds the
+        # ordering column to the SELECT and DISTINCT stops collapsing duplicates,
+        # returning the same exam type once per mark.
+        types = sorted(qs.order_by().values_list("exam_type", flat=True).distinct())
         return Response({"types": list(types)})
 
     @action(detail=False, methods=["post"])
@@ -187,10 +190,10 @@ class ExamResultViewSet(viewsets.ModelViewSet):
         elif role == 'parent':
             # Parents see only their children's results
             return ExamResult.objects.filter(
-                student__parent__user=user
+                student__guardians__user=user
             ).select_related("student", "student_class").prefetch_related(
                 "subject_results__subject"
-            )
+            ).distinct()
         
         return ExamResult.objects.none()
 

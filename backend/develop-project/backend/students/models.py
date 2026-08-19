@@ -48,6 +48,11 @@ class Student(models.Model):
     nationality = models.CharField(max_length=100, default="Tanzanian")
     residential_address = models.TextField(blank=True)
     is_orphan = models.BooleanField(default=False)
+    has_disability = models.BooleanField(default=False)
+    disability_details = models.TextField(
+        blank=True,
+        help_text="Nature of the disability, support needs and any accommodations required",
+    )
 
     # Academic placement
     student_class = models.ForeignKey(
@@ -94,9 +99,24 @@ class Student(models.Model):
     def class_name(self):
         return self.student_class.name if self.student_class else ""
 
+    @property
+    def parent(self):
+        """The main contact, for the many places that want just one guardian.
+
+        Guardians are ordered primary-first, so this is the flagged one when
+        there is one and the earliest recorded otherwise.
+        """
+        return self.guardians.first()
+
 
 class ParentGuardian(models.Model):
-    student = models.OneToOneField(Student, on_delete=models.CASCADE, related_name="parent")
+    """A parent or guardian of a student.
+
+    A student may have several — a mother and a father, or an uncle or elder
+    brother acting as guardian — and each one can be given their own portal
+    login by linking a `user`.
+    """
+    student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name="guardians")
     user = models.ForeignKey(
         "auth.User",
         on_delete=models.SET_NULL,
@@ -104,6 +124,10 @@ class ParentGuardian(models.Model):
         blank=True,
         related_name="guardian_records",
         help_text="Linked login account (parent portal access)",
+    )
+    is_primary = models.BooleanField(
+        default=False,
+        help_text="The main contact for this student. Shown first everywhere.",
     )
     full_name = models.CharField(max_length=200)
     relationship = models.CharField(max_length=50)
@@ -115,8 +139,11 @@ class ParentGuardian(models.Model):
     emergency_contact_name = models.CharField(max_length=200, blank=True)
     emergency_contact_phone = models.CharField(max_length=20, blank=True)
 
+    class Meta:
+        ordering = ["-is_primary", "id"]
+
     def __str__(self):
-        return f"{self.full_name} (parent of {self.student})"
+        return f"{self.full_name} ({self.relationship} of {self.student})"
 
 
 class EmergencyContact(models.Model):

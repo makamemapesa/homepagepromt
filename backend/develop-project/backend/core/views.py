@@ -48,6 +48,10 @@ class UserViewSet(viewsets.ModelViewSet):
         serializer = UserCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
+        # The profile cached on `user` was built by the post_save signal before
+        # the requested role was applied; drop it so the response reports the
+        # role that was actually stored rather than the placeholder.
+        user.refresh_from_db()
         return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
 
     def update(self, request, *args, **kwargs):
@@ -165,7 +169,7 @@ class NotificationViewSet(viewsets.ModelViewSet):
         if student_id:
             from students.models import Student
             try:
-                student = Student.objects.select_related('parent__user').get(pk=student_id)
+                student = Student.objects.prefetch_related('guardians__user').get(pk=student_id)
                 if student.parent and student.parent.user:
                     # Create a copy of request.data to modify
                     data = request.data.copy()
@@ -287,9 +291,9 @@ class DashboardStatsView(generics.RetrieveAPIView):
         elif role == 'parent':
             # Parents see only their children's data
             total_students = Student.objects.filter(
-                parent__user=user,
+                guardians__user=user,
                 status="active"
-            ).count()
+            ).distinct().count()
             
             return Response({
                 "totalStudents": total_students,
@@ -362,8 +366,13 @@ class PendingParentsView(generics.ListAPIView):
 
 class PendingParentDeleteView(generics.DestroyAPIView):
     """
-    Delete a specific pending parent record (and their student) by ParentGuardian id.
-    Only admins can do this.
+    Remove a guardian record that has no login account yet.
+
+    A student may have several guardians, so this deletes only the guardian
+    named — deleting the father's entry must never take the student and the
+    mother with it. The student is removed only when this was the last
+    guardian on the record, which is the incomplete-registration case this
+    endpoint was built for.
     """
     permission_classes = [IsAuthenticated]
 
@@ -374,10 +383,17 @@ class PendingParentDeleteView(generics.DestroyAPIView):
         from students.models import ParentGuardian
         try:
             pg = ParentGuardian.objects.select_related("student").get(pk=pk)
-            pg.student.delete()  # CASCADE deletes the ParentGuardian too
-            return Response(status=status.HTTP_204_NO_CONTENT)
         except ParentGuardian.DoesNotExist:
             return Response({"error": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        student = pg.student
+        other_guardians = student.guardians.exclude(pk=pg.pk).exists() if student else False
+        if student and not other_guardians:
+            student.delete()  # CASCADE removes the guardian row too
+            return Response({"deleted": "student"}, status=status.HTTP_200_OK)
+
+        pg.delete()
+        return Response({"deleted": "guardian"}, status=status.HTTP_200_OK)
 
 
 class ParentDashboardView(generics.RetrieveAPIView):
@@ -394,7 +410,7 @@ class ParentDashboardView(generics.RetrieveAPIView):
 
         # Find all students linked to this parent via ParentGuardian.user
         from students.models import Student
-        students_qs = Student.objects.filter(parent__user=request.user).select_related("student_class", "donor")
+        students_qs = Student.objects.filter(guardians__user=request.user).select_related("student_class", "donor").distinct()
         if not students_qs.exists():
             return Response({"error": "No student linked to this parent account. Please contact the administrator."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -443,7 +459,7 @@ class ParentAttendanceView(generics.RetrieveAPIView):
         from students.models import Student
         from academics.models import StudentAttendance
 
-        students_qs = Student.objects.filter(parent__user=request.user).select_related("student_class")
+        students_qs = Student.objects.filter(guardians__user=request.user).select_related("student_class").distinct()
         if not students_qs.exists():
             return Response({"error": "No student linked to this account."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -495,7 +511,7 @@ class ParentTimetableView(generics.RetrieveAPIView):
         from academics.models import Timetable
         from academics.serializers import TimetableSerializer
 
-        students_qs = Student.objects.filter(parent__user=request.user).select_related("student_class")
+        students_qs = Student.objects.filter(guardians__user=request.user).select_related("student_class").distinct()
         if not students_qs.exists():
             return Response({"error": "No student linked to this account."}, status=status.HTTP_404_NOT_FOUND)
 

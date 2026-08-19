@@ -55,7 +55,9 @@ def _get_or_create_parent_account(parent_name: str, parent_email: str, parent_ph
             first_name=fn,
             last_name=ln,
         )
-        UserProfile.objects.create(user=user, role="parent")
+        # A profile already exists — the post_save signal on User creates one —
+        # so this must update it rather than insert a second row.
+        UserProfile.objects.update_or_create(user=user, defaults={"role": "parent"})
 
     return user, True, default_password
 

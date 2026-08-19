@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Bell, Search } from "lucide-react"
+import { usePathname, useRouter } from "next/navigation"
+import { ArrowLeft, Bell, Search } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -15,9 +16,35 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { api, getResults } from "@/lib/api-client"
 
-export function DashboardHeader({ title, description }: { title: string; description?: string }) {
+export function DashboardHeader({
+  title,
+  description,
+  backHref,
+}: {
+  title: string
+  description?: string
+  /** Where Back goes. Defaults to browser history, falling back to the dashboard. */
+  backHref?: string
+}) {
   const [unreadCount, setUnreadCount] = useState(0)
   const [recentNotifications, setRecentNotifications] = useState<any[]>([])
+  const router = useRouter()
+  const pathname = usePathname()
+  // The dashboard home is the root of the section — there is nowhere "back" to.
+  const showBack = pathname !== "/dashboard"
+
+  const goBack = () => {
+    if (backHref) {
+      router.push(backHref)
+      return
+    }
+    // history.back() only helps if there is history from within the app.
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back()
+    } else {
+      router.push("/dashboard")
+    }
+  }
 
   useEffect(() => {
     api.get("/api/notifications/?read=false&page_size=4")
@@ -31,13 +58,26 @@ export function DashboardHeader({ title, description }: { title: string; descrip
 
   return (
     <header className="flex flex-col gap-4 border-b border-border bg-card px-6 py-4 md:flex-row md:items-center md:justify-between">
-      <div className="ml-8 md:ml-0">
-        <h1 className="text-xl font-bold tracking-tight text-card-foreground" style={{ fontFamily: "var(--font-heading)" }}>
-          {title}
-        </h1>
-        {description && (
-          <p className="text-sm text-muted-foreground">{description}</p>
+      <div className="ml-8 flex items-center gap-3 md:ml-0">
+        {showBack && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={goBack}
+            className="h-8 shrink-0 gap-1.5 px-2.5"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            <span className="hidden sm:inline">Back</span>
+          </Button>
         )}
+        <div>
+          <h1 className="text-xl font-bold tracking-tight text-card-foreground" style={{ fontFamily: "var(--font-heading)" }}>
+            {title}
+          </h1>
+          {description && (
+            <p className="text-sm text-muted-foreground">{description}</p>
+          )}
+        </div>
       </div>
 
       <div className="flex items-center gap-3">

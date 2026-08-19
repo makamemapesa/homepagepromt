@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useUser } from "@/contexts/user-context"
 import { api } from "@/lib/api-client"
+import { useTimetablePeriods, periodLabel, periodTime } from "@/hooks/use-timetable-periods"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -56,6 +57,8 @@ function ParentPortalContent() {
   const [showNewMsg, setShowNewMsg] = useState(false)
   const [newMsgRecipient, setNewMsgRecipient] = useState("")
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  // Bell schedule configured by the school, shared with the admin timetable.
+  const { periods: PERIODS } = useTimetablePeriods()
 
   // Application tracking
   const [applications, setApplications] = useState<any[]>([])
@@ -194,11 +197,6 @@ function ParentPortalContent() {
   }
 
   const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-  const PERIODS = [
-    { period: 1, time: "8:00–8:45" }, { period: 2, time: "8:45–9:30" },
-    { period: 3, time: "9:45–10:30" }, { period: 4, time: "10:30–11:15" },
-    { period: 5, time: "11:30–12:15" }, { period: 6, time: "12:15–1:00" },
-  ]
 
   if (loading) {
     return (
@@ -682,13 +680,26 @@ function ParentPortalContent() {
                         </tr>
                       </thead>
                       <tbody>
-                        {PERIODS.map(({ period, time }) => (
-                          <tr key={period}>
+                        {PERIODS.map((p) => p.isBreak ? (
+                          <tr key={p.period}>
                             <td className="px-2 py-1 text-muted-foreground text-[11px]">
-                              <div className="font-semibold">P{period}</div>
-                              <div className="opacity-70">{time}</div>
+                              <div className="font-semibold">{periodLabel(p)}</div>
+                              <div className="opacity-70">{periodTime(p)}</div>
+                            </td>
+                            <td colSpan={DAYS.length} className="px-1 py-1">
+                              <div className="rounded-lg border border-dashed border-border bg-muted/40 py-2 text-center text-[11px] text-muted-foreground">
+                                {periodLabel(p)}
+                              </div>
+                            </td>
+                          </tr>
+                        ) : (
+                          <tr key={p.period}>
+                            <td className="px-2 py-1 text-muted-foreground text-[11px]">
+                              <div className="font-semibold">{periodLabel(p)}</div>
+                              <div className="opacity-70">{periodTime(p)}</div>
                             </td>
                             {DAYS.map(day => {
+                              const period = p.period
                               const slot = slots.find((s: any) => s.day === day && s.period === period)
                               return (
                                 <td key={day} className="px-1 py-1">

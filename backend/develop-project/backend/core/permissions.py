@@ -87,6 +87,22 @@ class IsTeacherOrAdminOrParentReadOnly(BasePermission):
         return False
 
 
+class IsSchoolStaffOrParentReadOnly(BasePermission):
+    """Any staff role may read student records; parents may read their own.
+
+    Accountants are included because recording a payment starts by looking the
+    student up — StudentViewSet.get_queryset already scopes what each role
+    actually sees, and writes are routed to admin-only permissions separately.
+    """
+    def has_permission(self, request, view):
+        role = get_user_role(request.user)
+        if role in ['teacher', 'admin', 'super_admin', 'accountant']:
+            return True
+        if role == 'parent' and request.method in ['GET', 'HEAD', 'OPTIONS']:
+            return True
+        return False
+
+
 class IsAccountantOrAdminOrParentReadOnly(BasePermission):
     """
     Combined permission: Accountants and Admins have full access, Parents can only read.

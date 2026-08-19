@@ -400,6 +400,9 @@ export default function StudentsPage() {
                         {viewStudent.isOrphan && (
                           <Badge className="text-[11px] font-semibold border-0 bg-purple-400/30 text-white">Orphan</Badge>
                         )}
+                        {viewStudent.hasDisability && (
+                          <Badge className="text-[11px] font-semibold border-0 bg-amber-400/30 text-white">Special Needs</Badge>
+                        )}
                         {(() => {
                           const hist = viewStudent.academicHistory || []
                           const latest = hist[0]
@@ -442,6 +445,14 @@ export default function StudentsPage() {
                         <div className="mt-3 bg-muted/30 rounded-xl px-5 py-4">
                           <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Residential Address</p>
                           <p className="text-sm font-medium">{viewStudent.residentialAddress}</p>
+                        </div>
+                      )}
+                      {viewStudent.hasDisability && (
+                        <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5 px-5 py-4">
+                          <p className="text-[11px] font-semibold text-amber-700 uppercase tracking-wider mb-1">Disability / Special Needs</p>
+                          <p className="text-sm font-medium whitespace-pre-wrap">
+                            {viewStudent.disabilityDetails || "No details recorded."}
+                          </p>
                         </div>
                       )}
                     </TabsContent>
@@ -525,24 +536,62 @@ export default function StudentsPage() {
                     </TabsContent>
 
                     <TabsContent value="guardian">
-                      {p ? (
-                        <div className="bg-muted/30 rounded-xl p-5 grid grid-cols-3 gap-x-8 gap-y-5">
-                          <InfoField label="Full Name" value={p.fullName} />
-                          <InfoField label="Relationship" value={p.relationship} />
-                          <InfoField label="Phone" value={p.phone} />
-                          <InfoField label="Email" value={p.email} />
-                          <InfoField label="Occupation" value={p.occupation} />
-                          <InfoField label="Emergency Contact" value={p.emergencyContactName} />
-                          <InfoField label="Emergency Phone" value={p.emergencyContactPhone} />
-                          <InfoField label="Office Address" value={p.officeAddress} />
-                          <InfoField label="Home Address" value={p.homeAddress} />
-                        </div>
-                      ) : (
-                        <div className="bg-muted/30 rounded-xl px-5 py-10 flex flex-col items-center justify-center text-center gap-2">
-                          <Heart className="h-8 w-8 text-muted-foreground/30" />
-                          <p className="text-sm text-muted-foreground">No parent/guardian information recorded.</p>
-                        </div>
-                      )}
+                      {(() => {
+                        // Every guardian — mother, father, uncle, elder brother — each of
+                        // whom may hold their own parent-portal login.
+                        const guardians = (viewStudent.guardians && viewStudent.guardians.length)
+                          ? viewStudent.guardians
+                          : (p ? [p] : [])
+                        if (!guardians.length) {
+                          return (
+                            <div className="bg-muted/30 rounded-xl px-5 py-10 flex flex-col items-center justify-center text-center gap-2">
+                              <Heart className="h-8 w-8 text-muted-foreground/30" />
+                              <p className="text-sm text-muted-foreground">No parent/guardian information recorded.</p>
+                            </div>
+                          )
+                        }
+                        return (
+                          <div className="flex flex-col gap-4">
+                            {guardians.map((g: any, i: number) => (
+                              <div key={g.id ?? i} className="bg-muted/30 rounded-xl p-5">
+                                <div className="flex flex-wrap items-center gap-2 mb-4">
+                                  <span className="text-sm font-semibold">{g.fullName || "Guardian"}</span>
+                                  {g.relationship && (
+                                    <Badge variant="secondary" className="text-[11px]">{g.relationship}</Badge>
+                                  )}
+                                  {g.isPrimary && (
+                                    <Badge variant="outline" className="text-[11px] border-primary/30 text-primary bg-primary/5">
+                                      Main contact
+                                    </Badge>
+                                  )}
+                                  {g.hasPortalAccess ? (
+                                    <Badge variant="outline" className="text-[11px] border-accent/30 text-accent bg-accent/10">
+                                      Portal access
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="text-[11px] text-muted-foreground">
+                                      No login yet
+                                    </Badge>
+                                  )}
+                                </div>
+                                <div className="grid grid-cols-3 gap-x-8 gap-y-5">
+                                  <InfoField label="Phone" value={g.phone} />
+                                  <InfoField label="Email" value={g.email} />
+                                  <InfoField label="Occupation" value={g.occupation} />
+                                  <InfoField label="Emergency Contact" value={g.emergencyContactName} />
+                                  <InfoField label="Emergency Phone" value={g.emergencyContactPhone} />
+                                  <InfoField label="Office Address" value={g.officeAddress} />
+                                  <InfoField label="Home Address" value={g.homeAddress} />
+                                </div>
+                              </div>
+                            ))}
+                            <p className="text-xs text-muted-foreground px-1">
+                              Guardians without a login can be given one from User Management →
+                              Parents awaiting login.
+                            </p>
+                          </div>
+                        )
+                      })()}
                     </TabsContent>
 
                     <TabsContent value="sponsor">

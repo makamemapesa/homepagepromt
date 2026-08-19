@@ -45,8 +45,8 @@ class PaymentViewSet(viewsets.ModelViewSet):
         elif role == 'parent':
             # Parents see only their children's payments
             return Payment.objects.filter(
-                student__parent__user=user
-            ).select_related("student__student_class")
+                student__guardians__user=user
+            ).select_related("student__student_class").distinct()
         
         return Payment.objects.none()
 

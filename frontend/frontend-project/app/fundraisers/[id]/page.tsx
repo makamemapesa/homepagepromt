@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
+import { useSiteBranding } from "@/hooks/use-site-branding"
 import Image from "next/image"
 import { Heart, Target, Users, ArrowLeft, CheckCircle2, Calendar, ExternalLink, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -97,6 +98,7 @@ function ProgressBar({ pct, color }: { pct: number; color: string }) {
 }
 
 export default function FundraiserDetailPage() {
+  const branding = useSiteBranding()
   const params = useParams()
   const router = useRouter()
   const id = params.id as string
@@ -203,7 +205,7 @@ export default function FundraiserDetailPage() {
       >
         <div className="mx-auto max-w-7xl px-6 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3 group">
-            <Image src="/farouk-logo.jpeg" alt="AL NAMAA ACADEMY" width={36} height={36}
+            <img src={branding.logo} alt={branding.schoolName} style={{ width: 36, height: 36 }}
               className="rounded-lg object-cover ring-1 ring-white/10 group-hover:ring-accent/50 transition-all duration-300" />
             <div className="hidden sm:block">
               <p className="text-[13px] font-bold text-white leading-tight">AL NAMAA ACADEMY</p>
@@ -462,7 +464,7 @@ export default function FundraiserDetailPage() {
       <footer className="py-6" style={{ background: "oklch(0.10 0.03 250)" }}>
         <div className="mx-auto max-w-7xl px-6 flex flex-col md:flex-row items-center justify-between gap-5">
           <div className="flex items-center gap-3">
-            <Image src="/farouk-logo.jpeg" alt="AL NAMAA ACADEMY" width={34} height={34}
+            <img src={branding.logo} alt={branding.schoolName} style={{ width: 34, height: 34 }}
               className="rounded-lg object-cover ring-1 ring-white/10" />
             <div>
               <p className="text-[13px] font-bold text-white leading-tight">AL NAMAA ACADEMY</p>

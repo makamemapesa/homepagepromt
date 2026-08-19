@@ -8,10 +8,12 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import axios from "axios"
 import { setTokens } from "@/lib/auth"
+import { useSiteBranding } from "@/hooks/use-site-branding"
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
 export default function LoginPage() {
+  const branding = useSiteBranding()
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
@@ -47,12 +49,11 @@ export default function LoginPage() {
         <div className="absolute inset-0 bg-[linear-gradient(135deg,oklch(0.30_0.10_250)_0%,oklch(0.20_0.08_250)_50%,oklch(0.35_0.12_250)_100%)]" />
         <div className="relative z-10 flex flex-col justify-between p-12 text-primary-foreground">
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-accent text-accent-foreground font-bold text-lg">
-              F
-            </div>
+            <img src={branding.logo} alt={branding.schoolName}
+              className="h-12 w-12 rounded-xl object-cover ring-1 ring-white/20" />
             <div>
-              <h1 className="text-xl font-bold" style={{ fontFamily: "var(--font-heading)" }}>AL NAMAA</h1>
-              <p className="text-xs text-primary-foreground/70">AL NAMAA ACADEMY</p>
+              <h1 className="text-xl font-bold" style={{ fontFamily: "var(--font-heading)" }}>{branding.schoolName}</h1>
+              <p className="text-xs text-primary-foreground/70">{branding.tagline}</p>
             </div>
           </div>
 
@@ -82,7 +83,7 @@ export default function LoginPage() {
           </div>
 
           <p className="text-xs text-primary-foreground/40">
-            AL NAMAA ACADEMY. All rights reserved.
+            {branding.schoolName}. All rights reserved.
           </p>
         </div>
 
@@ -96,12 +97,11 @@ export default function LoginPage() {
         <div className="w-full max-w-md">
           {/* Mobile Logo */}
           <div className="mb-8 flex items-center gap-3 lg:hidden">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
-              F
-            </div>
+            <img src={branding.logo} alt={branding.schoolName}
+              className="h-10 w-10 rounded-lg object-cover" />
             <div>
-              <h1 className="text-lg font-bold text-foreground" style={{ fontFamily: "var(--font-heading)" }}>AL NAMAA</h1>
-              <p className="text-xs text-muted-foreground">AL NAMAA ACADEMY</p>
+              <h1 className="text-lg font-bold text-foreground" style={{ fontFamily: "var(--font-heading)" }}>{branding.schoolName}</h1>
+              <p className="text-xs text-muted-foreground">{branding.tagline}</p>
             </div>
           </div>
 

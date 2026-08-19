@@ -10,8 +10,15 @@ class HomePageContentAPITests(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.user = User.objects.create_user(username="superadmin", email="super@example.com", password="StrongPass123")
-        # Signals may auto-create a profile on User creation; use get_or_create to avoid UNIQUE errors in tests
-        self.profile, _ = UserProfile.objects.get_or_create(user=self.user, defaults={"role": "super_admin"})
+        # A profile is auto-created by the post_save signal, so this has to update
+        # that row rather than insert a second one — and it must set the role
+        # outright, since the auto-created role is deliberately unprivileged.
+        self.profile, _ = UserProfile.objects.update_or_create(
+            user=self.user, defaults={"role": "super_admin"}
+        )
+        # Drop the profile cached on the instance by the signal, so the role
+        # checks see super_admin (a real request loads the user fresh anyway).
+        self.user.refresh_from_db()
 
     def test_public_can_read_default_homepage_content(self):
         response = self.client.get("/api/homepage-content/")

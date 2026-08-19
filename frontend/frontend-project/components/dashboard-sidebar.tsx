@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { useSiteBranding } from "@/hooks/use-site-branding"
 import { usePathname, useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
 import {
@@ -124,6 +125,7 @@ export function DashboardSidebar() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
   const { user, loading, logout } = useUser()
+  const branding = useSiteBranding()
   const router = useRouter()
 
   // Get navigation items based on user role
@@ -191,12 +193,11 @@ export function DashboardSidebar() {
       >
         {/* Logo */}
         <div className="flex h-16 items-center gap-3 px-4">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground font-bold text-sm">
-            F
-          </div>
+          <img src={branding.logo} alt={branding.schoolName}
+            className="h-9 w-9 shrink-0 rounded-lg object-cover" />
           {!collapsed && (
             <div className="flex flex-col">
-              <span className="text-sm font-bold tracking-tight">FISS</span>
+              <span className="text-sm font-bold tracking-tight">{branding.schoolName}</span>
               <span className="text-[10px] text-sidebar-foreground/60 leading-none">
                 School Management
               </span>
