@@ -64,6 +64,7 @@ export default function ResultsPage() {
   const [loading, setLoading] = useState(false)
   const [computing, setComputing] = useState(false)
   const [computeMsg, setComputeMsg] = useState<string | null>(null)
+  const [loadMsg, setLoadMsg] = useState("")
   const [fetchTick, setFetchTick] = useState(0)
 
   // ── table filters
@@ -104,8 +105,11 @@ export default function ResultsPage() {
         setCaTypes(new Set(types))   // default: all are CA types
         setFinalExamType("")          // user picks final explicitly
       })
-      .catch(() => {})
-  }, [selectedClassId, selectedTerm, user, authLoading])
+      .catch(() => {
+        setAvailableTypes([]); setCaTypes(new Set()); setFinalExamType("")
+        setComputeMsg("✗ Could not load the assessments for this class and term.")
+      })
+  }, [selectedClassId, selectedTerm, academicSession, user, authLoading])
 
   // load results
   useEffect(() => {
@@ -116,12 +120,13 @@ export default function ResultsPage() {
     api.get(
       `/api/exam-results/?student_class=${selectedClassId}` +
       `&term=${encodeURIComponent(selectedTerm)}` +
-      `&academic_session=${encodeURIComponent(academicSession)}`
+      `&academic_session=${encodeURIComponent(academicSession)}` +
+      `&page_size=500`   // whole class in one page; the 50-row default clips it
     )
-      .then(r => setResults(getResults(r.data)))
-      .catch(() => setResults([]))
+      .then(r => { setResults(getResults(r.data)); setLoadMsg("") })
+      .catch(() => { setResults([]); setLoadMsg("Could not load results for this class and term.") })
       .finally(() => setLoading(false))
-  }, [selectedClassId, selectedTerm, fetchTick, user, authLoading])
+  }, [selectedClassId, selectedTerm, academicSession, fetchTick, user, authLoading])
 
   // ── compute
   const activeCaTypes = useMemo(
@@ -455,10 +460,12 @@ export default function ResultsPage() {
             ) : filtered.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-center gap-2">
                 <BarChart2 className="h-10 w-10 text-muted-foreground/40" />
-                <p className="text-sm text-muted-foreground">
-                  {results.length === 0
-                    ? "No results yet. Configure scoring above then click Compute Results."
-                    : "No results match your search."}
+                <p className={`text-sm ${loadMsg ? "text-destructive" : "text-muted-foreground"}`}>
+                  {loadMsg
+                    ? loadMsg
+                    : results.length === 0
+                      ? "No results yet. Configure scoring above then click Compute Results."
+                      : "No results match your search."}
                 </p>
               </div>
             ) : (

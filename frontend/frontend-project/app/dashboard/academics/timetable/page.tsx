@@ -97,7 +97,9 @@ export default function TimetablePage() {
 
   // The bell schedule — how many periods there are and when each one runs.
   const { periods: PERIODS, reload: reloadPeriods } = useTimetablePeriods()
-  const canEditPeriods = !!user && ["super_admin", "admin"].includes(user.role)
+  // Timetable writes are admin-only server-side. Without this the Add /
+  // Edit / Remove controls render for teachers and then quietly do nothing.
+  const isAdmin = !!user && ["super_admin", "admin"].includes(user.role)
   const [periodsOpen, setPeriodsOpen] = useState(false)
   const [periodDraft, setPeriodDraft] = useState<TimetablePeriod[]>([])
   const [periodsSaving, setPeriodsSaving] = useState(false)
@@ -336,7 +338,7 @@ export default function TimetablePage() {
                     </Badge>
                   </div>
                   <div className="flex items-center gap-2">
-                    {canEditPeriods && (
+                    {isAdmin && (
                       <Button variant="outline" size="sm" onClick={openPeriods}>
                         <Settings2 className="mr-2 h-4 w-4" /> Edit Periods
                       </Button>
@@ -344,6 +346,7 @@ export default function TimetablePage() {
                     <Button variant="outline" size="sm">
                       <Download className="mr-2 h-4 w-4" /> Export PDF
                     </Button>
+                    {isAdmin && (
                     <Dialog open={addSlotOpen} onOpenChange={(o) => { setAddSlotOpen(o); if (!o) { setAddForm({ ...EMPTY_SLOT }); setAddError("") } }}>
                       <DialogTrigger asChild>
                         <Button size="sm">
@@ -445,6 +448,7 @@ export default function TimetablePage() {
                         </DialogFooter>
                       </DialogContent>
                     </Dialog>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -497,8 +501,8 @@ export default function TimetablePage() {
                             <td key={day} className="p-1.5">
                               {slot ? (
                                 <div
-                                  className={`rounded-lg border p-2.5 ${PERIOD_COLORS[periodIndex % PERIOD_COLORS.length]} transition-colors hover:opacity-90 cursor-pointer group relative`}
-                                  onClick={() => openEdit(slot)}
+                                  className={`rounded-lg border p-2.5 ${PERIOD_COLORS[periodIndex % PERIOD_COLORS.length]} transition-colors hover:opacity-90 group relative ${isAdmin ? "cursor-pointer" : ""}`}
+                                  onClick={isAdmin ? () => openEdit(slot) : undefined}
                                 >
                                   <p className="text-xs font-semibold leading-tight">{slot.subjectName || slot.subject}</p>
                                   <p className="text-[10px] mt-1 opacity-80">{(slot.teacherName || slot.teacher || "").split(" ").slice(-1)[0]}</p>
@@ -506,12 +510,14 @@ export default function TimetablePage() {
                                     <MapPin className="h-2.5 w-2.5 opacity-60" />
                                     <span className="text-[9px] opacity-70">{slot.room}</span>
                                   </div>
-                                  <button
-                                    className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 text-destructive hover:bg-destructive/20 rounded p-0.5"
-                                    onClick={e => { e.stopPropagation(); setDeleteTarget(slot) }}
-                                  >
-                                    <span className="text-[9px] font-bold">✕</span>
-                                  </button>
+                                  {isAdmin && (
+                                    <button
+                                      className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 text-destructive hover:bg-destructive/20 rounded p-0.5"
+                                      onClick={e => { e.stopPropagation(); setDeleteTarget(slot) }}
+                                    >
+                                      <span className="text-[9px] font-bold">✕</span>
+                                    </button>
+                                  )}
                                 </div>
                               ) : (
                                 <div className="rounded-lg border border-dashed border-border p-2.5 text-center min-h-[60px] flex items-center justify-center">
@@ -546,9 +552,11 @@ export default function TimetablePage() {
                     <CardTitle className="text-base font-semibold">Academic Calendar 2026</CardTitle>
                     <CardDescription>Key dates, events, and examination periods</CardDescription>
                   </div>
-                  <Button size="sm">
-                    <Plus className="mr-2 h-4 w-4" /> Add Event
-                  </Button>
+                  {isAdmin && (
+                    <Button size="sm" onClick={() => router.push("/dashboard/academics/calendar")}>
+                      <Plus className="mr-2 h-4 w-4" /> Add Event
+                    </Button>
+                  )}
                 </div>
               </CardHeader>
               <CardContent>

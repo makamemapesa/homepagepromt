@@ -10,7 +10,7 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 
 from .models import UserProfile, SchoolSettings, Notification, AuditLog, TeamMember, CEOMessage, Fundraiser, Donation, HomePageContent
 from .permissions import IsSuperAdmin, IsSuperAdminOrAdmin, IsAccountantOrAdmin
-from .utils import get_user_role
+from .utils import get_teacher_class_ids, get_teacher_for, get_user_role
 from .serializers import (
     UserSerializer,
     UserCreateSerializer,
@@ -265,20 +265,12 @@ class DashboardStatsView(generics.RetrieveAPIView):
         
         elif role == 'teacher':
             # Teachers see only their class statistics (homeroom + assigned)
-            from academics.models import Teacher as TeacherModel, Class, TeacherAssignment
-            try:
-                teacher = TeacherModel.objects.get(email=user.email)
-                homeroom_ids = set(Class.objects.filter(class_teacher=teacher).values_list('id', flat=True))
-                assigned_ids = set(TeacherAssignment.objects.filter(teacher=teacher, status='active').values_list('student_class_id', flat=True))
-                all_ids = homeroom_ids | assigned_ids
-                total_students = Student.objects.filter(
-                    student_class_id__in=all_ids,
-                    status="active"
-                ).count()
-                total_classes = len(all_ids)
-            except TeacherModel.DoesNotExist:
-                total_students = 0
-                total_classes = 0
+            all_ids = get_teacher_class_ids(get_teacher_for(user))
+            total_students = Student.objects.filter(
+                student_class_id__in=all_ids,
+                status="active"
+            ).count()
+            total_classes = len(all_ids)
             
             return Response({
                 "totalStudents": total_students,
@@ -700,14 +692,7 @@ class ReportChartsView(generics.RetrieveAPIView):
         # For teachers, get their assigned classes (homeroom + subject-assigned)
         teacher_class_ids = None
         if role == "teacher":
-            try:
-                from academics.models import TeacherAssignment
-                teacher = TeacherModel.objects.get(email=request.user.email)
-                homeroom_ids = set(Class.objects.filter(class_teacher=teacher).values_list('id', flat=True))
-                assigned_ids = set(TeacherAssignment.objects.filter(teacher=teacher, status='active').values_list('student_class_id', flat=True))
-                teacher_class_ids = homeroom_ids | assigned_ids
-            except TeacherModel.DoesNotExist:
-                teacher_class_ids = set()
+            teacher_class_ids = get_teacher_class_ids(get_teacher_for(request.user))
 
         # Parse full term string e.g. "Term 2, 2025/2026"
         # ExamMark.term stores the FULL string ("Term 2, 2025/2026") as entered by the marks page

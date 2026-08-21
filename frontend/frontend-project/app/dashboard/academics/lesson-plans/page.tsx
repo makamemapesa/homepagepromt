@@ -119,6 +119,10 @@ function LessonPlanDetailDialog({ plan }: { plan: any }) {
 
 const EMPTY_PLAN = { topic: "", subject: "", studentClass: "", week: "", date: "", teacher: "", status: "upcoming", objectives: "", resources: "" }
 
+// A lesson plan is the teacher's own working document — they are the primary
+// author, not a bystander. Admins can additionally file one for anybody.
+const CAN_MANAGE = ["super_admin", "admin", "teacher"]
+
 export default function LessonPlansPage() {
   const { user, loading: authLoading } = useUser()
   const router = useRouter()
@@ -143,17 +147,27 @@ export default function LessonPlansPage() {
 
   const [deleteTarget, setDeleteTarget] = useState<any>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
+  const [listError, setListError] = useState("")
 
-  const fetchPlans = () => api.get("/api/lesson-plans/").then(r => setLessonPlansData(getResults(r.data))).catch(() => {})
+  const isAdmin = !!user && ["super_admin", "admin"].includes(user.role)
+
+  const fetchPlans = () =>
+    api.get("/api/lesson-plans/?page_size=500")
+      .then(r => { setLessonPlansData(getResults(r.data)); setListError("") })
+      .catch(() => { setLessonPlansData([]); setListError("Could not load lesson plans.") })
 
   useEffect(() => {
     if (authLoading || !user) return
     if (!["super_admin", "admin", "teacher"].includes(user.role)) return
     fetchPlans()
-    api.get("/api/subjects/").then(r => setSubjectsData(getResults(r.data))).catch(() => {})
-    api.get("/api/classes/").then(r => setClasses(getResults(r.data))).catch(() => {})
-    api.get("/api/teachers/").then(r => setTeachers(getResults(r.data))).catch(() => {})
-  }, [user, authLoading])
+    api.get("/api/subjects/?page_size=500").then(r => setSubjectsData(getResults(r.data))).catch(() => {})
+    api.get("/api/classes/?page_size=500").then(r => setClasses(getResults(r.data))).catch(() => {})
+    // Only admins may read the staff list; a teacher's plan is attributed to
+    // them by the server, so they never need the picker.
+    if (isAdmin) {
+      api.get("/api/teachers/?page_size=500").then(r => setTeachers(getResults(r.data))).catch(() => {})
+    }
+  }, [user, authLoading, isAdmin])
 
   const buildPayload = (form: typeof EMPTY_PLAN) => ({
     topic: form.topic,
@@ -161,14 +175,14 @@ export default function LessonPlansPage() {
     studentClass: parseInt(form.studentClass),
     week: form.week,
     date: form.date,
-    teacher: form.teacher ? parseInt(form.teacher) : null,
+    ...(isAdmin ? { teacher: form.teacher ? parseInt(form.teacher) : null } : {}),
     status: form.status,
     objectives: form.objectives,
     resources: form.resources,
   })
 
   const handleAdd = () => {
-    if (!user || !["super_admin", "admin"].includes(user.role)) return
+    if (!user || !CAN_MANAGE.includes(user.role)) return
     setAddLoading(true); setAddError("")
     api.post("/api/lesson-plans/", buildPayload(addForm))
       .then(() => { fetchPlans(); setAddOpen(false); setAddForm({ ...EMPTY_PLAN }) })
@@ -192,7 +206,7 @@ export default function LessonPlansPage() {
   }
 
   const handleEdit = () => {
-    if (!user || !["super_admin", "admin"].includes(user.role)) return
+    if (!user || !CAN_MANAGE.includes(user.role)) return
     setEditLoading(true); setEditError("")
     api.patch(`/api/lesson-plans/${editTarget.id}/`, buildPayload(editForm))
       .then(() => { fetchPlans(); setEditTarget(null) })
@@ -201,11 +215,11 @@ export default function LessonPlansPage() {
   }
 
   const handleDelete = () => {
-    if (!user || !["super_admin", "admin"].includes(user.role)) return
+    if (!user || !CAN_MANAGE.includes(user.role)) return
     setDeleteLoading(true)
     api.delete(`/api/lesson-plans/${deleteTarget.id}/`)
       .then(() => { fetchPlans(); setDeleteTarget(null) })
-      .catch(() => {})
+      .catch(() => setListError("Could not delete that plan."))
       .finally(() => setDeleteLoading(false))
   }
 
@@ -344,6 +358,7 @@ export default function LessonPlansPage() {
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
+                        {isAdmin && (
                         <div className="flex flex-col gap-2">
                           <Label>Teacher</Label>
                           <Select value={addForm.teacher} onValueChange={v => setAddForm({ ...addForm, teacher: v })}>
@@ -355,6 +370,7 @@ export default function LessonPlansPage() {
                             </SelectContent>
                           </Select>
                         </div>
+                        )}
                         <div className="flex flex-col gap-2">
                           <Label>Status</Label>
                           <Select value={addForm.status} onValueChange={v => setAddForm({ ...addForm, status: v })}>
@@ -494,6 +510,7 @@ export default function LessonPlansPage() {
               <p className="text-xs text-muted-foreground">
                 Showing {filteredPlans.length} of {lessonPlansData.length} lesson plans
               </p>
+              {listError && <p className="text-xs text-destructive">{listError}</p>}
             </div>
           </CardContent>
         </Card>
@@ -551,6 +568,7 @@ export default function LessonPlansPage() {
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
+              {isAdmin && (
               <div className="flex flex-col gap-2">
                 <Label>Teacher</Label>
                 <Select value={editForm.teacher} onValueChange={v => setEditForm({ ...editForm, teacher: v })}>
@@ -562,6 +580,7 @@ export default function LessonPlansPage() {
                   </SelectContent>
                 </Select>
               </div>
+              )}
               <div className="flex flex-col gap-2">
                 <Label>Status</Label>
                 <Select value={editForm.status} onValueChange={v => setEditForm({ ...editForm, status: v })}>

@@ -151,6 +151,9 @@ const ARM_SUGGESTIONS = ["A","B","C","D","E","F","G","H"]
 export default function ClassesPage() {
   const { user, loading: authLoading } = useUser()
   const router = useRouter()
+  // Writes are admin-only server-side; without this the buttons render for
+  // teachers and then silently do nothing when clicked.
+  const isAdmin = !!user && ["super_admin", "admin"].includes(user.role)
   const [searchQuery, setSearchQuery] = useState("")
   const [sectionFilter, setSectionFilter] = useState("all")
   const [classes, setClasses] = useState<any[]>([])
@@ -425,9 +428,11 @@ export default function ClassesPage() {
                     <CardTitle className="text-base font-semibold">Sections</CardTitle>
                     <CardDescription>Manage school sections used to group classes</CardDescription>
                   </div>
-                  <Button size="sm" onClick={() => { setSectionAddValue(""); setSectionAddOpen(true) }}>
-                    <Plus className="mr-2 h-4 w-4" /> Add Section
-                  </Button>
+                  {isAdmin && (
+                    <Button size="sm" onClick={() => { setSectionAddValue(""); setSectionAddOpen(true) }}>
+                      <Plus className="mr-2 h-4 w-4" /> Add Section
+                    </Button>
+                  )}
                 </div>
               </CardHeader>
               <CardContent>
@@ -449,12 +454,16 @@ export default function ClassesPage() {
                         </div>
                         <div className="flex items-center gap-2">
                           <Badge className={`${color.bg} ${color.text} border-0 text-[11px]`}>{sectionClasses.length} classes</Badge>
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setSectionEditTarget(section); setSectionEditValue(section) }}>
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setSectionDeleteTarget(section)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          {isAdmin && (
+                            <>
+                              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setSectionEditTarget(section); setSectionEditValue(section) }}>
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setSectionDeleteTarget(section)}>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </>
+                          )}
                         </div>
                       </div>
                     )
@@ -481,6 +490,7 @@ export default function ClassesPage() {
                 <Button variant="outline" size="sm">
                   <Download className="mr-2 h-4 w-4" /> Export
                 </Button>
+                {isAdmin && (
                 <Dialog open={addOpen} onOpenChange={(o) => { setAddOpen(o); if (!o) { setAddForm({ ...EMPTY_FORM }); setAddError("") } }}>
                   <DialogTrigger asChild>
                     <Button size="sm" onClick={() => setAddOpen(true)}>
@@ -556,6 +566,7 @@ export default function ClassesPage() {
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
+                )}
               </div>
             </div>
           </CardHeader>
@@ -656,16 +667,17 @@ export default function ClassesPage() {
                             <DropdownMenuItem onClick={() => setViewingClass(cls)}>
                               <Eye className="mr-2 h-4 w-4" /> View Details
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => openEdit(cls)}>
-                              <Edit className="mr-2 h-4 w-4" /> Edit Class
-                            </DropdownMenuItem>
-                            <DropdownMenuItem>
-                              <Users className="mr-2 h-4 w-4" /> View Students
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem className="text-destructive" onClick={() => setDeleteTarget(cls)}>
-                              <Trash2 className="mr-2 h-4 w-4" /> Delete Class
-                            </DropdownMenuItem>
+                            {isAdmin && (
+                              <>
+                                <DropdownMenuItem onClick={() => openEdit(cls)}>
+                                  <Edit className="mr-2 h-4 w-4" /> Edit Class
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem className="text-destructive" onClick={() => setDeleteTarget(cls)}>
+                                  <Trash2 className="mr-2 h-4 w-4" /> Delete Class
+                                </DropdownMenuItem>
+                              </>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>

@@ -79,28 +79,27 @@ export default function AttendancePage() {
   const [tchSaving, setTchSaving] = useState(false)
   const [tchMsg, setTchMsg] = useState("")
 
-  // Build class attendance aggregates from individual student records
+  // Class aggregates are counted in the database. Tallying them here meant
+  // fetching every record for the day, which stopped at one page and silently
+  // under-reported the moment a school had more than a page of pupils.
   const fetchClassAggregates = (date: string) => {
-    api.get(`/api/student-attendance/?date=${date}`)
+    api.get(`/api/student-attendance/summary/?date=${date}`)
       .then(r => {
-        const records = getResults(r.data)
-        const byClass: Record<number, { studentClass: number; className: string; present: number; absent: number; late: number }> = {}
-        records.forEach((rec: any) => {
-          const cid = rec.studentClass
-          if (!byClass[cid]) {
-            byClass[cid] = { studentClass: cid, className: rec.className || "", present: 0, absent: 0, late: 0 }
-          }
-          if (rec.status === "present") byClass[cid].present++
-          else if (rec.status === "absent") byClass[cid].absent++
-          else if (rec.status === "late") byClass[cid].late++
-        })
-        setAttendanceData(Object.values(byClass))
-      }).catch(() => {})
+        const rows = getResults(r.data) as any[]
+        setAttendanceData(rows.map(row => ({
+          studentClass: row.studentClass,
+          className: row.className || "",
+          present: row.present,
+          absent: row.absent,
+          late: row.late,
+        })))
+      })
+      .catch(() => { setAttendanceData([]); setStuMsg("Could not load the attendance summary.") })
   }
 
   const fetchStudentRecords = (date: string, classId: string) => {
     if (!classId) return
-    api.get(`/api/student-attendance/?date=${date}&student_class=${classId}`)
+    api.get(`/api/student-attendance/?date=${date}&student_class=${classId}&page_size=500`)
       .then(r => {
         const recs = getResults(r.data)
         setStuRecords(recs)
@@ -113,7 +112,7 @@ export default function AttendancePage() {
   }
 
   const fetchTeacherRecords = (date: string) => {
-    api.get(`/api/teacher-attendance/?date=${date}`)
+    api.get(`/api/teacher-attendance/?date=${date}&page_size=500`)
       .then(r => {
         const recs = getResults(r.data)
         setTchRecords(recs)
@@ -138,14 +137,18 @@ export default function AttendancePage() {
   useEffect(() => {
     if (authLoading || !user) return
     if (!["super_admin", "admin", "teacher"].includes(user.role)) return
-    api.get("/api/classes/").then(r => {
+    api.get("/api/classes/?page_size=500").then(r => {
       const cls = getResults(r.data) as any[]
       setClasses(cls)
-      // Auto-select first class for teachers (they only have one)
+      // Preselect the first of the teacher's own classes; the picker still lets
+      // them switch, since a teacher can be assigned to more than one.
       if (isTeacher && cls.length > 0) {
         setStuClass(String(cls[0].id))
       }
-    }).catch(() => {})
+      if (isTeacher && cls.length === 0) {
+        setStuMsg("You are not assigned to any class yet. Ask an administrator to assign you one.")
+      }
+    }).catch(() => { setClasses([]); setStuMsg("Could not load your classes.") })
     if (!isTeacher) {
       api.get("/api/teachers/").then(r => setTeachers(getResults(r.data))).catch(() => {})
     }
@@ -163,7 +166,9 @@ export default function AttendancePage() {
     if (authLoading || !user) return
     if (!["super_admin", "admin", "teacher"].includes(user.role)) return
     if (stuClass) {
-      api.get(`/api/students/?student_class=${stuClass}`).then(r => setStudents(getResults(r.data))).catch(() => {})
+      api.get(`/api/students/?student_class=${stuClass}&status=active&page_size=500`)
+        .then(r => setStudents(getResults(r.data)))
+        .catch(() => { setStudents([]); setStuMsg("Could not load the class list.") })
       fetchStudentRecords(stuDate, stuClass)
     }
   }, [stuDate, stuClass, user, authLoading])

@@ -41,8 +41,15 @@ export default function MeritListPage() {
 
   const [meritList, setMeritList] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
+  const [loadMsg, setLoadMsg] = useState("")
   const [fetchTick, setFetchTick] = useState(0)
   const [search, setSearch] = useState("")
+
+  // "Term 2, 2026" → "2026". Without it the list mixes sessions together.
+  const academicSession = useMemo(() => {
+    const match = selectedTerm.match(/,\s*(.+)$/)
+    return match ? match[1].trim() : "2026"
+  }, [selectedTerm])
 
   useEffect(() => {
     if (authLoading || !user) return
@@ -67,7 +74,9 @@ export default function MeritListPage() {
     setLoading(true)
     api.get(
       `/api/exam-results/?student_class=${selectedClassId}` +
-      `&term=${encodeURIComponent(selectedTerm)}&ordering=-average`
+      `&term=${encodeURIComponent(selectedTerm)}` +
+      `&academic_session=${encodeURIComponent(academicSession)}` +
+      `&ordering=-average&page_size=500`
     )
       .then(r => {
         const data = getResults(r.data)
@@ -78,10 +87,11 @@ export default function MeritListPage() {
           regNo: s.regNo || s.reg_no,
           className: s.className || s.class_name || s.class,
         })))
+        setLoadMsg("")
       })
-      .catch(() => setMeritList([]))
+      .catch(() => { setMeritList([]); setLoadMsg("Could not load the merit list for this class and term.") })
       .finally(() => setLoading(false))
-  }, [selectedClassId, selectedTerm, fetchTick, user, authLoading])
+  }, [selectedClassId, selectedTerm, academicSession, fetchTick, user, authLoading])
 
   // Dynamic subject columns from the data
   const subjectColumns = useMemo(() => {
@@ -231,8 +241,12 @@ export default function MeritListPage() {
             ) : filtered.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-center gap-2">
                 <Trophy className="h-10 w-10 text-muted-foreground/40" />
-                <p className="text-sm text-muted-foreground">
-                  {meritList.length === 0 ? "No results yet. Compute results first." : "No students match your search."}
+                <p className={`text-sm ${loadMsg ? "text-destructive" : "text-muted-foreground"}`}>
+                  {loadMsg
+                    ? loadMsg
+                    : meritList.length === 0
+                      ? "No results yet. Compute results first."
+                      : "No students match your search."}
                 </p>
               </div>
             ) : (

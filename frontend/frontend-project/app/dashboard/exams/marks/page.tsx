@@ -49,6 +49,8 @@ export default function MarksEntryPage() {
   const [examType, setExamType] = useState("")
   const [marks, setMarks] = useState<Marks>({})
   const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveMsg, setSaveMsg] = useState("")
 
   const [allMarksForTerm, setAllMarksForTerm] = useState<any[]>([])
   const [refreshTick, setRefreshTick] = useState(0)
@@ -73,9 +75,9 @@ export default function MarksEntryPage() {
     if (authLoading || !user) return
     if (!["super_admin", "admin", "teacher"].includes(user.role)) return
     if (!selectedClassId) { setAllStudents([]); return }
-    api.get(`/api/students/?student_class=${selectedClassId}&status=active&page_size=200`)
+    api.get(`/api/students/?student_class=${selectedClassId}&status=active&page_size=500`)
       .then(r => setAllStudents(getResults(r.data)))
-      .catch(() => {})
+      .catch(() => { setAllStudents([]); setSaveMsg("Could not load the class list. Check your connection and try again.") })
   }, [selectedClassId, user, authLoading])
 
   useEffect(() => {
@@ -85,11 +87,14 @@ export default function MarksEntryPage() {
       setAllMarksForTerm([])
       return
     }
+    // page_size matters: a full class across several assessments runs well past
+    // the 50-row default page, and the rows that fall off the end come back as
+    // blank inputs — which then overwrite real marks on the next save.
     api.get(
-      `/api/exam-marks/?student_class=${selectedClassId}&subject=${selectedSubjectId}&term=${encodeURIComponent(selectedTerm)}&academic_session=${encodeURIComponent(academicSession)}`
+      `/api/exam-marks/?student_class=${selectedClassId}&subject=${selectedSubjectId}&term=${encodeURIComponent(selectedTerm)}&academic_session=${encodeURIComponent(academicSession)}&page_size=500`
     )
       .then(r => setAllMarksForTerm(getResults(r.data) as any[]))
-      .catch(() => {})
+      .catch(() => { setAllMarksForTerm([]); setSaveMsg("Could not load existing marks for this selection.") })
   }, [selectedClassId, selectedSubjectId, selectedTerm, academicSession, refreshTick, user, authLoading])
 
   useEffect(() => {
@@ -143,16 +148,21 @@ export default function MarksEntryPage() {
   }
 
   const setMark = (studentId: string, value: string) => {
-    const num = parseInt(value)
-    if (value === "" || (num >= 0 && num <= 100)) {
+    // parseFloat, not parseInt: half marks are ordinary in practical and
+    // coursework papers, and the column is a Decimal all the way to the database.
+    const num = parseFloat(value)
+    if (value === "" || (!isNaN(num) && num >= 0 && num <= 100)) {
       setMarks(m => ({ ...m, [studentId]: value }))
       setSaved(false)
+      setSaveMsg("")
     }
   }
 
   const handleSave = () => {
     if (!user || !["super_admin", "admin", "teacher"].includes(user.role)) return
     if (!selectedClassId || !selectedSubjectId || !examType) return
+    const trimmedType = examType.trim()
+    if (!trimmedType) { setSaveMsg("Give the assessment a name before saving."); return }
     const markItems = classStudents
       .filter(s => marks[s.id] !== undefined && marks[s.id] !== "")
       .map(s => ({
@@ -160,19 +170,29 @@ export default function MarksEntryPage() {
         subject: selectedSubjectId,
         student_class: selectedClassId,
         term: selectedTerm,
-        exam_type: examType,
+        exam_type: trimmedType,
         academic_session: academicSession,
-        score: parseInt(marks[s.id]),
+        score: parseFloat(marks[s.id]),
       }))
+    setSaving(true); setSaveMsg("")
     api.post("/api/exam-marks/bulk_save/", { marks: markItems })
-      .then(() => {
-        setSaved(true)
+      .then(res => {
+        // bulk_save answers 200 even when it rejected individual rows, so a
+        // "Saved" badge on the bare promise resolving is a lie. Read the count.
+        const savedCount = Number(res.data?.saved ?? 0)
+        const rejected = markItems.length - savedCount
+        if (rejected > 0) {
+          setSaveMsg(`Saved ${savedCount} of ${markItems.length}. ${rejected} score(s) were rejected — check for values outside 0–100.`)
+        } else {
+          setSaved(true)
+          setSaveMsg(`Saved ${savedCount} score${savedCount === 1 ? "" : "s"}.`)
+        }
         // Optimistically update allMarksForTerm so the Score Summary reflects the new
         // scores without triggering a re-fetch that would overwrite the user's inputs.
         setAllMarksForTerm(prev => {
           const savedIds = new Set(markItems.map(m => m.student))
           const kept = prev.filter(
-            m => !(m.examType === examType && savedIds.has(String(m.student)))
+            m => !(m.examType === trimmedType && savedIds.has(String(m.student)))
           )
           const updated = markItems.map(m => ({
             student: Number(m.student),
@@ -185,12 +205,20 @@ export default function MarksEntryPage() {
           return [...kept, ...updated]
         })
       })
-      .catch(() => {})
+      .catch(err => {
+        const detail = err?.response?.data?.error
+          || (err?.response?.status === 403 ? "You are not allowed to enter marks for this class." : null)
+          || "Could not save the marks. Nothing was changed."
+        setSaveMsg(detail)
+      })
+      .finally(() => setSaving(false))
   }
 
   const filledCount = classStudents.filter(s => marks[s.id] !== undefined && marks[s.id] !== "").length
+  // Averaged over the students actually marked — dividing by the whole class
+  // treats every un-entered student as a zero and reads far too low mid-entry.
   const avgMark = filledCount > 0
-    ? (classStudents.reduce((sum, s) => sum + parseFloat(marks[s.id] || "0"), 0) / classStudents.length).toFixed(1)
+    ? (classStudents.reduce((sum, s) => sum + (parseFloat(marks[s.id] || "") || 0), 0) / filledCount).toFixed(1)
     : ""
 
   const readyToEnter = selectedClass && selectedSubject && examType
@@ -294,9 +322,18 @@ export default function MarksEntryPage() {
                 <CardTitle>{selectedSubject}  {selectedClass}</CardTitle>
                 <CardDescription>{examType}  {selectedTerm}  Score out of 100</CardDescription>
               </div>
-              <Button onClick={handleSave} className="gap-2" disabled={filledCount === 0}>
-                {saved ? <><CheckCircle2 className="h-4 w-4" /> Saved</> : <><Save className="h-4 w-4" /> Save Marks</>}
-              </Button>
+              <div className="flex flex-col items-end gap-1">
+                <Button onClick={handleSave} className="gap-2" disabled={filledCount === 0 || saving}>
+                  {saving
+                    ? <><Save className="h-4 w-4" /> Saving…</>
+                    : saved
+                      ? <><CheckCircle2 className="h-4 w-4" /> Saved</>
+                      : <><Save className="h-4 w-4" /> Save Marks</>}
+                </Button>
+                {saveMsg && (
+                  <p className={`text-xs ${saved ? "text-accent" : "text-destructive"}`}>{saveMsg}</p>
+                )}
+              </div>
             </div>
           </CardHeader>
           <CardContent className="p-0">
@@ -327,6 +364,7 @@ export default function MarksEntryPage() {
                           type="number"
                           min={0}
                           max={100}
+                          step="0.5"
                           className="w-20 h-8 text-center"
                           placeholder=""
                           value={marks[student.id] ?? ""}
@@ -436,7 +474,9 @@ export default function MarksEntryPage() {
                         {availableTypes.map(t => (
                           <TableCell key={t} className={includedTypes.has(t) ? "" : "opacity-40 text-muted-foreground"}>
                             {scores[t] !== undefined ? (
-                              <Badge variant="outline" className="font-mono text-xs">{scores[t].toFixed(0)}</Badge>
+                              <Badge variant="outline" className="font-mono text-xs">
+                                {Number.isInteger(scores[t]) ? scores[t] : scores[t].toFixed(1)}
+                              </Badge>
                             ) : ""}
                           </TableCell>
                         ))}

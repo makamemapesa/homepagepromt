@@ -17,7 +17,7 @@ from core.permissions import (
     IsSchoolStaffOrParentReadOnly,
     IsTeacherOrAdminOrParentReadOnly,
 )
-from core.utils import get_user_role
+from core.utils import get_teacher_class_ids, get_teacher_for, get_user_role
 from donors.models import Donor
 from .models import Student, StudentDocument, AcademicHistory
 from .serializers import (
@@ -74,17 +74,10 @@ class StudentViewSet(viewsets.ModelViewSet):
         
         elif role == 'teacher':
             # Teachers see students in their classes (homeroom + subject-assigned)
-            from academics.models import Teacher, Class, TeacherAssignment
-            try:
-                teacher = Teacher.objects.get(email=user.email)
-                homeroom_ids = set(Class.objects.filter(class_teacher=teacher).values_list('id', flat=True))
-                assigned_ids = set(TeacherAssignment.objects.filter(teacher=teacher, status='active').values_list('student_class_id', flat=True))
-                all_ids = homeroom_ids | assigned_ids
-                return Student.objects.filter(
-                    student_class_id__in=all_ids
-                ).select_related("student_class", "donor")
-            except Teacher.DoesNotExist:
-                return Student.objects.none()
+            all_ids = get_teacher_class_ids(get_teacher_for(user))
+            return Student.objects.filter(
+                student_class_id__in=all_ids
+            ).select_related("student_class", "donor")
         
         elif role == 'parent':
             # Parents see only their own children
@@ -624,17 +617,10 @@ class AcademicHistoryViewSet(viewsets.ModelViewSet):
         if role in ['super_admin', 'admin']:
             return AcademicHistory.objects.select_related("student").all()
         elif role == 'teacher':
-            from academics.models import Teacher, Class, TeacherAssignment
-            try:
-                teacher = Teacher.objects.get(email=user.email)
-                homeroom_ids = set(Class.objects.filter(class_teacher=teacher).values_list('id', flat=True))
-                assigned_ids = set(TeacherAssignment.objects.filter(teacher=teacher, status='active').values_list('student_class_id', flat=True))
-                all_ids = homeroom_ids | assigned_ids
-                return AcademicHistory.objects.filter(
-                    student__student_class_id__in=all_ids
-                ).select_related("student")
-            except Teacher.DoesNotExist:
-                return AcademicHistory.objects.none()
+            all_ids = get_teacher_class_ids(get_teacher_for(user))
+            return AcademicHistory.objects.filter(
+                student__student_class_id__in=all_ids
+            ).select_related("student")
         elif role == 'parent':
             return AcademicHistory.objects.filter(
                 student__guardians__user=user

@@ -223,6 +223,9 @@ function SubjectFormFields({ form, setForm, error, levels, departmentList, toggl
 export default function SubjectsPage() {
   const { user, loading: authLoading } = useUser()
   const router = useRouter()
+  // Writes are admin-only server-side; without this the buttons render for
+  // teachers and then silently do nothing when clicked.
+  const isAdmin = !!user && ["super_admin", "admin"].includes(user.role)
   const [searchQuery, setSearchQuery] = useState("")
   const [deptFilter, setDeptFilter] = useState("all")
   const [typeFilter, setTypeFilter] = useState("all")
@@ -469,6 +472,7 @@ export default function SubjectsPage() {
                 <Button variant="outline" size="sm">
                   <Download className="mr-2 h-4 w-4" /> Export
                 </Button>
+                {isAdmin && (
                 <Dialog open={addOpen} onOpenChange={(o) => { setAddOpen(o); if (!o) { setAddForm({ ...EMPTY_SUBJ, classesOffered: [] }); setAddError("") } }}>
                   <DialogTrigger asChild>
                     <Button size="sm" onClick={() => setAddOpen(true)}>
@@ -487,6 +491,7 @@ export default function SubjectsPage() {
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
+                )}
               </div>
             </div>
           </CardHeader>
@@ -589,13 +594,17 @@ export default function SubjectsPage() {
                             <DropdownMenuItem onClick={() => setViewingSubject(subject)}>
                               <Eye className="mr-2 h-4 w-4" /> View Details
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => openEdit(subject)}>
-                              <Edit className="mr-2 h-4 w-4" /> Edit Subject
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem className="text-destructive" onClick={() => setDeleteTarget(subject)}>
-                              <Trash2 className="mr-2 h-4 w-4" /> Delete Subject
-                            </DropdownMenuItem>
+                            {isAdmin && (
+                              <>
+                                <DropdownMenuItem onClick={() => openEdit(subject)}>
+                                  <Edit className="mr-2 h-4 w-4" /> Edit Subject
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem className="text-destructive" onClick={() => setDeleteTarget(subject)}>
+                                  <Trash2 className="mr-2 h-4 w-4" /> Delete Subject
+                                </DropdownMenuItem>
+                              </>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>

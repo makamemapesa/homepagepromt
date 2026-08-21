@@ -42,7 +42,14 @@ export default function ReportCardsPage() {
 
   const [reportCardData, setReportCardData] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
+  const [loadMsg, setLoadMsg] = useState("")
   const [fetchTick, setFetchTick] = useState(0)
+
+  // "Term 2, 2026" → "2026", so a term number can't pull in another year's cards.
+  const academicSession = useMemo(() => {
+    const match = selectedTerm.match(/,\s*(.+)$/)
+    return match ? match[1].trim() : "2026"
+  }, [selectedTerm])
   const [search, setSearch] = useState("")
   const [selectedReport, setSelectedReport] = useState<any>(null)
   const [schoolName, setSchoolName] = useState("School")
@@ -52,19 +59,22 @@ export default function ReportCardsPage() {
   const [paidStudentIds, setPaidStudentIds] = useState<Set<number>>(new Set())
   const [savingComment, setSavingComment] = useState(false)
   const [commentSaved, setCommentSaved] = useState(false)
+  const [commentMsg, setCommentMsg] = useState("")
 
   useEffect(() => {
     if (authLoading || !user) return
     if (!["super_admin", "admin", "teacher", "accountant", "parent"].includes(user.role)) return
     setTeacherComment(selectedReport?.teacherComment || "")
     setCommentSaved(false)
+    setCommentMsg("")
     setStudentAttendance(null)
     setStudentPayments(null)
     if (!selectedReport) return
     const studentId = selectedReport.student
 
-    // Fetch attendance for this student
-    api.get(`/api/student-attendance/?student=${studentId}`)
+    // Fetch attendance for this student. page_size matters — a term runs to ~60
+    // school days, so the 50-row default silently under-counts every total below.
+    api.get(`/api/student-attendance/?student=${studentId}&page_size=500`)
       .then(r => {
         const records: any[] = Array.isArray(r.data) ? r.data : (r.data?.results ?? [])
         const present = records.filter(a => a.status === "present").length
@@ -76,7 +86,7 @@ export default function ReportCardsPage() {
 
     // Fetch payments for this student filtered by term
     const term = selectedReport.term || selectedTerm
-    api.get(`/api/fees/payments/?student=${studentId}&term=${encodeURIComponent(term)}`)
+    api.get(`/api/fees/payments/?student=${studentId}&term=${encodeURIComponent(term)}&page_size=500`)
       .then(r => {
         const records: any[] = Array.isArray(r.data) ? r.data : (r.data?.results ?? [])
         const confirmed = records.filter(p => p.status === "confirmed").reduce((s, p) => s + Number(p.amount), 0)
@@ -110,12 +120,15 @@ export default function ReportCardsPage() {
     if (!["super_admin", "admin", "teacher", "accountant", "parent"].includes(user.role)) return
     if (!selectedClassId) { setReportCardData([]); setPaidStudentIds(new Set()); return }
     setLoading(true)
-    const url = selectedClassId === "all"
-      ? `/api/exam-results/?term=${encodeURIComponent(selectedTerm)}`
-      : `/api/exam-results/?student_class=${selectedClassId}&term=${encodeURIComponent(selectedTerm)}`
+    // "All classes" over a whole school is well past one page, and a clipped list
+    // reads as "these students have no report card" rather than as a missing page.
+    const scope = selectedClassId === "all" ? "" : `student_class=${selectedClassId}&`
+    const url =
+      `/api/exam-results/?${scope}term=${encodeURIComponent(selectedTerm)}` +
+      `&academic_session=${encodeURIComponent(academicSession)}&page_size=500`
     api.get(url)
-      .then(r => setReportCardData(getResults(r.data)))
-      .catch(() => setReportCardData([]))
+      .then(r => { setReportCardData(getResults(r.data)); setLoadMsg("") })
+      .catch(() => { setReportCardData([]); setLoadMsg("Could not load report cards for this class and term.") })
       .finally(() => setLoading(false))
     // Fetch all payments for the term to know which students are fully paid
     api.get(`/api/fees/payments/?term=${encodeURIComponent(selectedTerm)}&page_size=500`)
@@ -136,7 +149,7 @@ export default function ReportCardsPage() {
         setPaidStudentIds(paid)
       })
       .catch(() => setPaidStudentIds(new Set()))
-  }, [selectedClassId, selectedTerm, fetchTick, user, authLoading])
+  }, [selectedClassId, selectedTerm, academicSession, fetchTick, user, authLoading])
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
@@ -385,8 +398,12 @@ export default function ReportCardsPage() {
             ) : filtered.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-center gap-2">
                 <FileText className="h-10 w-10 text-muted-foreground/40" />
-                <p className="text-sm text-muted-foreground">
-                  {reportCardData.length === 0 ? "No report cards yet. Compute results first." : "No students match your search."}
+                <p className={`text-sm ${loadMsg ? "text-destructive" : "text-muted-foreground"}`}>
+                  {loadMsg
+                    ? loadMsg
+                    : reportCardData.length === 0
+                      ? "No report cards yet. Compute results first."
+                      : "No students match your search."}
                 </p>
               </div>
             ) : (
@@ -578,7 +595,7 @@ export default function ReportCardsPage() {
                     <Textarea
                       placeholder="Enter class teacher's comment..."
                       value={teacherComment}
-                      onChange={e => { setTeacherComment(e.target.value); setCommentSaved(false) }}
+                      onChange={e => { setTeacherComment(e.target.value); setCommentSaved(false); setCommentMsg("") }}
                       rows={3}
                       disabled={user?.role === "parent"}
                     />
@@ -591,19 +608,25 @@ export default function ReportCardsPage() {
                           disabled={savingComment}
                           onClick={() => {
                             if (!selectedReport?.id) return
-                            setSavingComment(true)
+                            setSavingComment(true); setCommentMsg("")
                             api.patch(`/api/exam-results/${selectedReport.id}/`, { teacherComment })
                               .then(r => {
                                 setReportCardData(prev => prev.map(x => x.id === selectedReport.id ? { ...x, teacherComment: r.data.teacherComment } : x))
+                                setSelectedReport((prev: any) => prev ? { ...prev, teacherComment: r.data.teacherComment } : prev)
                                 setCommentSaved(true)
                               })
-                              .catch(() => {})
+                              .catch(err => setCommentMsg(
+                                err?.response?.status === 403
+                                  ? "You are not allowed to comment on this report card."
+                                  : "Could not save the comment. It has not been recorded."
+                              ))
                               .finally(() => setSavingComment(false))
                           }}
                         >
                           {savingComment ? "Saving…" : "Save Comment"}
                         </Button>
                         {commentSaved && <span className="text-xs text-accent">Saved ✓</span>}
+                        {commentMsg && <span className="text-xs text-destructive">{commentMsg}</span>}
                       </div>
                     )}
                   </div>

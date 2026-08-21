@@ -1,9 +1,13 @@
+from django.db.models import Count, Q
 from rest_framework import viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.response import Response
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django_filters.rest_framework import DjangoFilterBackend
 
 from core.permissions import IsSuperAdminOrAdmin, IsTeacherOrAdmin
-from core.utils import get_user_role
+from core.utils import get_teacher_class_ids, get_teacher_for, get_user_role
 from .models import Subject, Teacher, Class, TeacherAssignment, Timetable, Attendance, LessonPlan, AcademicCalendar, StudentAttendance, TeacherAttendance
 from .serializers import (
     SubjectSerializer,
@@ -73,14 +77,8 @@ class ClassViewSet(viewsets.ModelViewSet):
         if role in ['super_admin', 'admin']:
             return Class.objects.select_related("class_teacher").prefetch_related("subjects").all()
         elif role == 'teacher':
-            try:
-                teacher = Teacher.objects.get(email=user.email)
-                homeroom_ids = set(Class.objects.filter(class_teacher=teacher).values_list('id', flat=True))
-                assigned_ids = set(TeacherAssignment.objects.filter(teacher=teacher, status='active').values_list('student_class_id', flat=True))
-                all_ids = homeroom_ids | assigned_ids
-                return Class.objects.filter(id__in=all_ids).select_related("class_teacher").prefetch_related("subjects")
-            except Teacher.DoesNotExist:
-                return Class.objects.none()
+            all_ids = get_teacher_class_ids(get_teacher_for(user))
+            return Class.objects.filter(id__in=all_ids).select_related("class_teacher").prefetch_related("subjects")
         return Class.objects.none()
 
     def get_permissions(self):
@@ -125,11 +123,10 @@ class TimetableViewSet(viewsets.ModelViewSet):
         if role in ['super_admin', 'admin']:
             return Timetable.objects.select_related("student_class", "subject", "teacher").all()
         elif role == 'teacher':
-            try:
-                teacher = Teacher.objects.get(email=user.email)
-                return Timetable.objects.filter(teacher=teacher).select_related("student_class", "subject", "teacher")
-            except Teacher.DoesNotExist:
+            teacher = get_teacher_for(user)
+            if teacher is None:
                 return Timetable.objects.none()
+            return Timetable.objects.filter(teacher=teacher).select_related("student_class", "subject", "teacher")
         return Timetable.objects.none()
 
     def get_permissions(self):
@@ -157,14 +154,8 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         if role in ['super_admin', 'admin']:
             return Attendance.objects.select_related("student_class").all()
         elif role == 'teacher':
-            try:
-                teacher = Teacher.objects.get(email=user.email)
-                homeroom_ids = set(Class.objects.filter(class_teacher=teacher).values_list('id', flat=True))
-                assigned_ids = set(TeacherAssignment.objects.filter(teacher=teacher, status='active').values_list('student_class_id', flat=True))
-                all_ids = homeroom_ids | assigned_ids
-                return Attendance.objects.filter(student_class_id__in=all_ids).select_related("student_class")
-            except Teacher.DoesNotExist:
-                return Attendance.objects.none()
+            all_ids = get_teacher_class_ids(get_teacher_for(user))
+            return Attendance.objects.filter(student_class_id__in=all_ids).select_related("student_class")
         return Attendance.objects.none()
 
 
@@ -187,12 +178,33 @@ class LessonPlanViewSet(viewsets.ModelViewSet):
         if role in ['super_admin', 'admin']:
             return LessonPlan.objects.select_related("subject", "student_class", "teacher").all()
         elif role == 'teacher':
-            try:
-                teacher = Teacher.objects.get(email=user.email)
-                return LessonPlan.objects.filter(teacher=teacher).select_related("subject", "student_class", "teacher")
-            except Teacher.DoesNotExist:
+            teacher = get_teacher_for(user)
+            if teacher is None:
                 return LessonPlan.objects.none()
+            return LessonPlan.objects.filter(teacher=teacher).select_related("subject", "student_class", "teacher")
         return LessonPlan.objects.none()
+
+    def _pin_to_signed_in_teacher(self, serializer):
+        """A teacher's plan is always filed under them, whatever the form sent.
+
+        The teacher picker on the page is populated from /api/teachers/, which
+        teachers are not allowed to read — so their plans were saved with no
+        teacher at all and then filtered straight back out of their own list.
+        Admins keep the ability to file a plan for anyone.
+        """
+        if get_user_role(self.request.user) != 'teacher':
+            serializer.save()
+            return
+        teacher = get_teacher_for(self.request.user)
+        if teacher is None:
+            raise PermissionDenied("No teacher record is linked to your account.")
+        serializer.save(teacher=teacher)
+
+    def perform_create(self, serializer):
+        self._pin_to_signed_in_teacher(serializer)
+
+    def perform_update(self, serializer):
+        self._pin_to_signed_in_teacher(serializer)
 
 
 class AcademicCalendarViewSet(viewsets.ModelViewSet):
@@ -229,17 +241,59 @@ class StudentAttendanceViewSet(viewsets.ModelViewSet):
         if role in ["super_admin", "admin"]:
             return StudentAttendance.objects.select_related("student", "student_class").all()
         elif role == "teacher":
-            try:
-                teacher = Teacher.objects.get(email=user.email)
-                homeroom_ids = set(Class.objects.filter(class_teacher=teacher).values_list('id', flat=True))
-                assigned_ids = set(TeacherAssignment.objects.filter(teacher=teacher, status='active').values_list('student_class_id', flat=True))
-                all_ids = homeroom_ids | assigned_ids
-                return StudentAttendance.objects.filter(
-                    student_class_id__in=all_ids
-                ).select_related("student", "student_class")
-            except Teacher.DoesNotExist:
-                return StudentAttendance.objects.none()
+            all_ids = get_teacher_class_ids(get_teacher_for(user))
+            return StudentAttendance.objects.filter(
+                student_class_id__in=all_ids
+            ).select_related("student", "student_class")
         return StudentAttendance.objects.none()
+
+    @action(detail=False, methods=["get"])
+    def summary(self, request):
+        """Per-class present/absent/late counts for one date.
+
+        GET /api/student-attendance/summary/?date=YYYY-MM-DD
+
+        The dashboard used to fetch every record for the day and tally them in
+        the browser, which silently stopped at one page — so the summary table
+        under-reported as soon as a school had more than a page of pupils.
+        Counting in the database has no such ceiling.
+        """
+        date = request.query_params.get("date")
+        qs = self.get_queryset()
+        if date:
+            qs = qs.filter(date=date)
+        rows = (
+            qs.values("student_class_id", "student_class__name")
+            .annotate(
+                present=Count("id", filter=Q(status="present")),
+                absent=Count("id", filter=Q(status="absent")),
+                late=Count("id", filter=Q(status="late")),
+            )
+            .order_by("student_class__name")
+        )
+        return Response([
+            {
+                "student_class": r["student_class_id"],
+                "class_name": r["student_class__name"] or "",
+                "present": r["present"],
+                "absent": r["absent"],
+                "late": r["late"],
+            }
+            for r in rows
+        ])
+
+    def perform_create(self, serializer):
+        """Reads are scoped by get_queryset; creates need the same check.
+
+        Without it a teacher could POST a register for any class in the school,
+        since nothing on the create path looks at who they teach.
+        """
+        if get_user_role(self.request.user) == "teacher":
+            allowed = get_teacher_class_ids(get_teacher_for(self.request.user))
+            student_class = serializer.validated_data.get("student_class")
+            if student_class is None or student_class.id not in allowed:
+                raise PermissionDenied("You can only record attendance for your own classes.")
+        serializer.save()
 
 
 class TeacherAttendanceViewSet(viewsets.ModelViewSet):
