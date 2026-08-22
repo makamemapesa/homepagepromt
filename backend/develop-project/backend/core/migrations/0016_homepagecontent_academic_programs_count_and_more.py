@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('core', '0015_homepagecontent_featured_news_post_and_more'),
+        ('core', '0017_homepagecontent_about_images_and_more'),
     ]
 
     operations = [
@@ -199,11 +199,6 @@ class Migration(migrations.Migration):
             model_name='homepagecontent',
             name='featured_subjects',
             field=models.JSONField(blank=True, default=list),
-        ),
-        migrations.AddField(
-            model_name='homepagecontent',
-            name='footer_description',
-            field=models.TextField(blank=True, default=''),
         ),
         migrations.AddField(
             model_name='homepagecontent',
