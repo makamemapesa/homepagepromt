@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.db.models import Exists, OuterRef
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -56,11 +57,21 @@ class ExamMarkViewSet(viewsets.ModelViewSet):
             ).select_related("student", "subject", "student_class")
         
         elif role == 'parent':
-            # Parents see only their children's marks
-            from students.models import Student
+            # Parents see their children's marks only for terms whose report card
+            # has been released to them. The raw scores add up to the report, so
+            # leaving them open would hand an unpaid family by another route
+            # exactly what the fee gate on the report card holds back.
+            released = ExamResult.objects.filter(
+                student_id=OuterRef("student_id"),
+                term=OuterRef("term"),
+                academic_session=OuterRef("academic_session"),
+                released_at__isnull=False,
+            )
             return ExamMark.objects.filter(
                 student__guardians__user=user
-            ).select_related("student", "subject", "student_class").distinct()
+            ).filter(Exists(released)).select_related(
+                "student", "subject", "student_class"
+            ).distinct()
         
         return ExamMark.objects.none()
 
@@ -214,9 +225,13 @@ class ExamResultViewSet(viewsets.ModelViewSet):
             )
         
         elif role == 'parent':
-            # Parents see only their children's results
+            # Parents see only their children's results, and only once the school
+            # has actually released them. Without the released_at filter the fee
+            # gate on the Report Cards screen is decoration: a parent could read
+            # the whole report straight off /api/exam-results/ regardless.
             return ExamResult.objects.filter(
-                student__guardians__user=user
+                student__guardians__user=user,
+                released_at__isnull=False,
             ).select_related("student", "student_class").prefetch_related(
                 "subject_results__subject"
             ).distinct()
@@ -225,7 +240,8 @@ class ExamResultViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         """Only admins and teachers can create/update results."""
-        if self.action in ['create', 'update', 'partial_update', 'destroy', 'compute_results']:
+        if self.action in ['create', 'update', 'partial_update', 'destroy',
+                           'compute_results', 'send_to_parents']:
             return [IsTeacherOrAdmin()]
         return [IsTeacherOrAdminOrParentReadOnly()]
 
@@ -447,5 +463,157 @@ class ExamResultViewSet(viewsets.ModelViewSet):
 
         return Response(
             {"computed": results_computed, "term": term, "session": session},
+            status=200,
+        )
+
+    @action(detail=False, methods=["post"])
+    def send_to_parents(self, request):
+        """
+        Release computed report cards to the parents of a class, for the parents
+        of students whose fees for the term are settled.
+
+        Body:
+          student_class    : int | "all" — class id, or every class in scope
+          term             : str
+          academic_session : str  (defaults to the school's current session)
+          student_ids      : list — optional, narrows the send to these students
+          resend           : bool — re-send report cards already sent (default false)
+
+        Releasing a report does two things: it stamps ``released_at``, which is
+        what makes the report visible in the parent portal at all, and it drops a
+        notification into each linked guardian's account.
+
+        Returns ``{"sent": n, "notified": m, "skipped": [...]}``. Every student who
+        did not receive their report appears in ``skipped`` with the reason, so an
+        empty send is never mistaken for a successful one.
+        """
+        from django.utils import timezone
+
+        from core.models import Notification, SchoolSettings
+        from fees.services import term_fee_clearance
+
+        class_id = request.data.get("student_class")
+        term     = request.data.get("term")
+        if not class_id or not term:
+            return Response({"error": "student_class and term are required"}, status=400)
+
+        cfg = SchoolSettings.objects.first()
+        term    = str(term).strip()
+        session = (request.data.get("academic_session")
+                   or (cfg.academic_session if cfg else None) or "2026").strip()
+        resend  = bool(request.data.get("resend"))
+
+        student_ids = request.data.get("student_ids")
+        if student_ids is not None and not isinstance(student_ids, list):
+            return Response({"error": "student_ids must be a list of student ids."}, status=400)
+
+        user = request.user
+        role = get_user_role(user)
+        allowed_classes = None
+        if role == 'teacher':
+            allowed_classes = get_teacher_class_ids(get_teacher_for(user))
+            if not allowed_classes:
+                return Response(
+                    {"error": "You are not assigned to any class. Ask an administrator to assign you one."},
+                    status=403,
+                )
+
+        results = ExamResult.objects.filter(term=term, academic_session=session)
+        if str(class_id).lower() == "all":
+            # "All classes" still means all the classes *this user* is responsible
+            # for, so a teacher cannot release another year group's reports.
+            if allowed_classes is not None:
+                results = results.filter(student_class_id__in=allowed_classes)
+        else:
+            try:
+                class_id = int(class_id)
+            except (TypeError, ValueError):
+                return Response({"error": "student_class must be a class id or \"all\"."}, status=400)
+            if allowed_classes is not None and class_id not in allowed_classes:
+                return Response(
+                    {"error": "Access denied. You can only send report cards for your assigned classes."},
+                    status=403,
+                )
+            results = results.filter(student_class_id=class_id)
+
+        if student_ids is not None:
+            results = results.filter(student_id__in=student_ids)
+
+        results = list(
+            results.select_related("student", "student_class")
+            .prefetch_related("subject_results", "student__guardians__user")
+        )
+        if not results:
+            return Response(
+                {"error": "No results found for the selected class / term / session. Compute results first."},
+                status=404,
+            )
+
+        clearance = term_fee_clearance([r.student_id for r in results], term)
+
+        school_name = (cfg.school_name if cfg else None) or "The school"
+        now = timezone.now()
+        released = []
+        notifications = []
+        skipped = []
+
+        def skip(result, reason):
+            skipped.append({
+                "student": result.student_id,
+                "studentName": result.student.full_name,
+                "regNo": result.student.reg_no,
+                "reason": reason,
+            })
+
+        for result in results:
+            if not result.subject_results.all():
+                skip(result, "No computed result yet — run Compute Results for this class first.")
+                continue
+
+            if result.released_at and not resend:
+                skip(result, f"Already sent on {timezone.localtime(result.released_at).strftime('%d %b %Y')}.")
+                continue
+
+            cleared, reason = clearance[result.student_id]
+            if not cleared:
+                skip(result, reason)
+                continue
+
+            guardian_users = [g.user for g in result.student.guardians.all() if g.user_id]
+            if not guardian_users:
+                skip(result, "No parent portal account is linked to this student.")
+                continue
+
+            result.released_at = now
+            result.released_by = user
+            released.append(result)
+
+            position = f"position {result.position} of {result.student_class.name}" if result.position else "position not ranked"
+            for guardian_user in guardian_users:
+                notifications.append(Notification(
+                    recipient=guardian_user,
+                    title=f"Report card available — {term}",
+                    message=(
+                        f"{result.student.full_name}'s report card for {term} is now available in "
+                        f"the parent portal. Average {result.average}%, grade {result.grade or '—'}, "
+                        f"{position}. — {school_name}"
+                    ),
+                    type="success",
+                ))
+
+        with transaction.atomic():
+            if released:
+                ExamResult.objects.bulk_update(released, ["released_at", "released_by"])
+            if notifications:
+                Notification.objects.bulk_create(notifications)
+
+        return Response(
+            {
+                "sent": len(released),
+                "notified": len(notifications),
+                "skipped": skipped,
+                "term": term,
+                "session": session,
+            },
             status=200,
         )

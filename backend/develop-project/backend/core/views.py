@@ -417,7 +417,12 @@ class ParentDashboardView(generics.RetrieveAPIView):
             student_data = StudentDetailSerializer(student, context={"request": request}).data
             payments = Payment.objects.filter(student=student).order_by("-date")
             payment_data = PaymentSerializer(payments, many=True).data
-            results = ExamResult.objects.filter(student=student).prefetch_related("subject_results__subject").order_by("-academic_session", "term")
+            # Only report cards the school has released — matching the same gate
+            # on /api/exam-results/. An unreleased result is one whose fees are
+            # outstanding or whose marks are still being checked.
+            results = ExamResult.objects.filter(
+                student=student, released_at__isnull=False
+            ).prefetch_related("subject_results__subject").order_by("-academic_session", "term")
             result_data = ExamResultSerializer(results, many=True).data
             total_paid = sum(float(p["amount"]) for p in payment_data if p.get("status") == "confirmed")
             pending = sum(float(p["amount"]) for p in payment_data if p.get("status") == "pending")

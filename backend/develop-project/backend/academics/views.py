@@ -7,7 +7,9 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 from django_filters.rest_framework import DjangoFilterBackend
 
 from core.permissions import IsSuperAdminOrAdmin, IsTeacherOrAdmin
-from core.utils import get_teacher_class_ids, get_teacher_for, get_user_role
+from core.utils import (
+    get_teacher_class_ids, get_teacher_for, get_teacher_homeroom_class_ids, get_user_role,
+)
 from .models import Subject, Teacher, Class, TeacherAssignment, Timetable, Attendance, LessonPlan, AcademicCalendar, StudentAttendance, TeacherAttendance
 from .serializers import (
     SubjectSerializer,
@@ -136,9 +138,53 @@ class TimetableViewSet(viewsets.ModelViewSet):
         return [IsTeacherOrAdmin()]
 
 
-class AttendanceViewSet(viewsets.ModelViewSet):
+class ClassTeacherWritesMixin:
+    """Anyone who can see a register may read it; only its class teacher edits it.
+
+    A subject teacher shares a class with its class teacher but not the
+    responsibility for its attendance, so they keep the view and lose every
+    write. Admins are untouched — ``_require_class_teacher`` only bites for the
+    ``teacher`` role.
+
+    Reads stay scoped by ``get_queryset``; this covers the write paths, which
+    that queryset does not reach on create.
     """
-    Attendance - Teachers can manage their class attendance.
+
+    NOT_CLASS_TEACHER = (
+        "Only the class teacher can change attendance for this class. "
+        "As a subject teacher you can view it but not edit it."
+    )
+
+    def _require_class_teacher(self, *classes):
+        if get_user_role(self.request.user) != "teacher":
+            return
+        allowed = get_teacher_homeroom_class_ids(get_teacher_for(self.request.user))
+        for student_class in classes:
+            if student_class is None or student_class.id not in allowed:
+                raise PermissionDenied(self.NOT_CLASS_TEACHER)
+
+    def perform_create(self, serializer):
+        self._require_class_teacher(serializer.validated_data.get("student_class"))
+        serializer.save()
+
+    def perform_update(self, serializer):
+        # Both ends of the move matter: the class the record sits in now, and the
+        # one a PATCH would carry it into. Checking only the former would let a
+        # class teacher push a row into a colleague's class.
+        current = serializer.instance.student_class
+        self._require_class_teacher(
+            current, serializer.validated_data.get("student_class", current)
+        )
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        self._require_class_teacher(instance.student_class)
+        instance.delete()
+
+
+class AttendanceViewSet(ClassTeacherWritesMixin, viewsets.ModelViewSet):
+    """
+    Attendance - the class teacher records it; subject teachers can only look.
     """
     queryset = Attendance.objects.select_related("student_class").all()
     serializer_class = AttendanceSerializer
@@ -224,10 +270,12 @@ class AcademicCalendarViewSet(viewsets.ModelViewSet):
         return [IsTeacherOrAdmin()]
 
 
-class StudentAttendanceViewSet(viewsets.ModelViewSet):
+class StudentAttendanceViewSet(ClassTeacherWritesMixin, viewsets.ModelViewSet):
     """
     Per-student daily attendance. Filter by date and/or class.
-    Teachers can only access attendance for their own classes.
+
+    A teacher sees every class they are involved in, but only records and
+    corrects attendance for the classes they are class teacher of.
     """
     serializer_class = StudentAttendanceSerializer
     permission_classes = [IsTeacherOrAdmin]
@@ -281,19 +329,6 @@ class StudentAttendanceViewSet(viewsets.ModelViewSet):
             }
             for r in rows
         ])
-
-    def perform_create(self, serializer):
-        """Reads are scoped by get_queryset; creates need the same check.
-
-        Without it a teacher could POST a register for any class in the school,
-        since nothing on the create path looks at who they teach.
-        """
-        if get_user_role(self.request.user) == "teacher":
-            allowed = get_teacher_class_ids(get_teacher_for(self.request.user))
-            student_class = serializer.validated_data.get("student_class")
-            if student_class is None or student_class.id not in allowed:
-                raise PermissionDenied("You can only record attendance for your own classes.")
-        serializer.save()
 
 
 class TeacherAttendanceViewSet(viewsets.ModelViewSet):

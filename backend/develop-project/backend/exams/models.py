@@ -85,6 +85,17 @@ class ExamResult(models.Model):
     position = models.IntegerField(default=0)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
     teacher_comment = models.TextField(blank=True, default="")
+    # When this report card was released to the student's parents. Empty means
+    # it has not been sent, and that is what the parent portal filters on — an
+    # unreleased result is invisible to the family it belongs to.
+    released_at = models.DateTimeField(null=True, blank=True)
+    released_by = models.ForeignKey(
+        "auth.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="released_exam_results",
+    )
 
     class Meta:
         ordering = ["position"]

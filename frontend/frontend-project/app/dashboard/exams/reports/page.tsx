@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { useUser } from "@/contexts/user-context"
 import { api, getResults } from "@/lib/api-client"
 import { exportCSV, buildTermOptions } from "@/lib/utils"
-import { Search, Download, Printer, FileText, GraduationCap, Award, RefreshCw } from "lucide-react"
+import { Search, Download, Printer, FileText, GraduationCap, Award, RefreshCw, Send } from "lucide-react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -60,6 +60,9 @@ export default function ReportCardsPage() {
   const [savingComment, setSavingComment] = useState(false)
   const [commentSaved, setCommentSaved] = useState(false)
   const [commentMsg, setCommentMsg] = useState("")
+  const [sending, setSending] = useState(false)
+  const [sendSummary, setSendSummary] = useState<any>(null)
+  const [sendError, setSendError] = useState("")
 
   useEffect(() => {
     if (authLoading || !user) return
@@ -69,6 +72,7 @@ export default function ReportCardsPage() {
     setCommentMsg("")
     setStudentAttendance(null)
     setStudentPayments(null)
+    setSendError("")
     if (!selectedReport) return
     const studentId = selectedReport.student
 
@@ -160,8 +164,40 @@ export default function ReportCardsPage() {
     })
   }, [reportCardData, search])
 
-  const published = reportCardData.filter(r => r.status === "promoted" || r.status === "passed").length
+  // "Sent" means the school released the card to the family, which is what the
+  // parent portal keys off. It is not the same thing as being promoted, which is
+  // what this counter used to show under the label "Published".
+  const sentCount = reportCardData.filter(r => !!r.releasedAt).length
   const ready = !!selectedClassId
+
+  const canSend = !!user && ["super_admin", "admin", "teacher"].includes(user.role)
+
+  /** Release report cards to parents. Returns the server's summary, or null. */
+  const sendToParents = async (opts?: { studentIds?: number[]; resend?: boolean }) => {
+    if (!selectedClassId) return null
+    setSending(true); setSendError(""); setSendSummary(null)
+    try {
+      const res = await api.post("/api/exam-results/send_to_parents/", {
+        student_class:    selectedClassId,
+        term:             selectedTerm,
+        academic_session: academicSession,
+        ...(opts?.studentIds ? { student_ids: opts.studentIds } : {}),
+        ...(opts?.resend    ? { resend: true } : {}),
+      })
+      if (!opts?.studentIds) setSendSummary(res.data)
+      setFetchTick(t => t + 1)
+      return res.data
+    } catch (err: any) {
+      setSendError(
+        err?.response?.status === 403
+          ? "You are not allowed to release report cards for this class."
+          : err?.response?.data?.error || "Could not send report cards. Nothing was sent."
+      )
+      return null
+    } finally {
+      setSending(false)
+    }
+  }
 
   const classTeacherName = useMemo(() => {
     const cls = classes.find(c => String(c.id) === String(selectedClassId))
@@ -347,10 +383,10 @@ export default function ReportCardsPage() {
       {ready && (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           {[
-            { label: "Total Reports", value: reportCardData.length, icon: FileText,       color: "text-primary",     bg: "bg-primary/10" },
-            { label: "Published",     value: published,             icon: Award,          color: "text-accent",      bg: "bg-accent/10" },
-            { label: "Pending",       value: reportCardData.length - published, icon: GraduationCap, color: "text-yellow-600", bg: "bg-yellow-500/10" },
-            { label: "Class",         value: selectedClassName || "—", icon: Download,    color: "text-blue-600",    bg: "bg-blue-500/10" },
+            { label: "Total Reports",   value: reportCardData.length, icon: FileText,       color: "text-primary",     bg: "bg-primary/10" },
+            { label: "Sent to Parents", value: sentCount,             icon: Award,          color: "text-accent",      bg: "bg-accent/10" },
+            { label: "Not Sent",        value: reportCardData.length - sentCount, icon: GraduationCap, color: "text-yellow-600", bg: "bg-yellow-500/10" },
+            { label: "Class",           value: selectedClassName || "—", icon: Download,    color: "text-blue-600",    bg: "bg-blue-500/10" },
           ].map(({ label, value, icon: Icon, color, bg }) => (
             <Card key={label}>
               <CardContent className="flex items-center gap-4 pt-6">
@@ -371,22 +407,42 @@ export default function ReportCardsPage() {
                 <CardTitle>Report Card List</CardTitle>
                 <CardDescription>{selectedClassName} · {selectedTerm} · Click &quot;View&quot; to open full report card</CardDescription>
               </div>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="gap-1" disabled={filtered.length === 0}>
-                    <Download className="h-4 w-4" />Export All<ChevronDown className="h-3 w-3" />
+              <div className="flex items-center gap-2">
+                {canSend && (
+                  <Button
+                    size="sm"
+                    className="gap-1.5"
+                    disabled={sending || reportCardData.length === 0}
+                    onClick={() => sendToParents()}
+                  >
+                    <Send className="h-4 w-4" />{sending ? "Sending…" : "Send to Parents"}
                   </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => exportCSV(filtered.filter(r => paidStudentIds.has(Number(r.student))), `report-cards-${selectedClassName}-${selectedTerm}.csv`)}>
-                    Export as CSV
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={exportPDF}>
-                    Export as PDF
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                )}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="gap-1" disabled={filtered.length === 0}>
+                      <Download className="h-4 w-4" />Export All<ChevronDown className="h-3 w-3" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => exportCSV(filtered.filter(r => paidStudentIds.has(Number(r.student))), `report-cards-${selectedClassName}-${selectedTerm}.csv`)}>
+                      Export as CSV
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={exportPDF}>
+                      Export as PDF
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
+            {canSend && (
+              <p className="text-xs text-muted-foreground">
+                Sending releases each report card to the parent portal and notifies the linked
+                guardians. Students whose fees for {selectedTerm} are not fully settled are held
+                back, and you are told who and why.
+              </p>
+            )}
+            {sendError && <p className="text-xs text-destructive">{sendError}</p>}
             <div className="relative pt-2">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground mt-1" />
               <Input placeholder="Search student..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
@@ -415,7 +471,8 @@ export default function ReportCardsPage() {
                     <TableHead>Average</TableHead>
                     <TableHead>Grade</TableHead>
                     <TableHead>Division</TableHead>
-                    <TableHead>Status</TableHead>
+                    <TableHead>Result</TableHead>
+                    <TableHead>Sent to Parents</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -440,8 +497,19 @@ export default function ReportCardsPage() {
                         <TableCell><span className="text-sm font-medium">{r.division ? `Div ${r.division}` : "—"}</span></TableCell>
                         <TableCell>
                           <Badge variant="outline" className={isPassed ? "bg-accent/10 text-accent border-accent/30" : "bg-yellow-500/10 text-yellow-700 border-yellow-400/30"}>
-                            {isPassed ? "Published" : "Pending"}
+                            {isPassed ? "Promoted" : "Repeat"}
                           </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {r.releasedAt ? (
+                            <Badge variant="outline" className="bg-accent/10 text-accent border-accent/30">
+                              {new Date(r.releasedAt).toLocaleDateString("en-GB")}
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="bg-muted text-muted-foreground">
+                              Not sent
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
                           <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => setSelectedReport(r)}>
@@ -655,16 +723,48 @@ export default function ReportCardsPage() {
                 </div>
                 <Separator />
                 <div className="space-y-2">
-                  {studentPayments !== null && !isPaid && (
-                    <p className="text-xs text-destructive text-right">
-                      Print and download are disabled until all fees are fully paid.
+                  {selectedReport.releasedAt ? (
+                    <p className="text-xs text-accent text-right">
+                      Sent to this student&apos;s parents on {new Date(selectedReport.releasedAt).toLocaleDateString("en-GB")}.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground text-right">
+                      Not yet sent. Parents cannot see this report card until it is.
                     </p>
                   )}
+                  {studentPayments !== null && !isPaid && (
+                    <p className="text-xs text-destructive text-right">
+                      Sending, print and download are disabled until all fees for this term are fully paid.
+                    </p>
+                  )}
+                  {sendError && <p className="text-xs text-destructive text-right">{sendError}</p>}
                   <div className="flex items-center justify-between text-sm">
                     <Badge variant="outline" className={isPassed ? "bg-accent/10 text-accent border-accent/30" : "bg-destructive/10 text-destructive border-destructive/30"}>
                       {isPassed ? "Promoted" : "Repeat"}
                     </Badge>
                     <div className="flex gap-2">
+                      {canSend && (
+                        <Button
+                          size="sm"
+                          className="gap-2"
+                          disabled={!isPaid || sending}
+                          onClick={async () => {
+                            const summary = await sendToParents({
+                              studentIds: [Number(selectedReport.student)],
+                              resend: !!selectedReport.releasedAt,
+                            })
+                            if (summary?.sent) {
+                              const stamp = new Date().toISOString()
+                              setSelectedReport((prev: any) => prev ? { ...prev, releasedAt: stamp } : prev)
+                            } else if (summary?.skipped?.length) {
+                              setSendError(summary.skipped[0].reason)
+                            }
+                          }}
+                        >
+                          <Send className="h-4 w-4" />
+                          {sending ? "Sending…" : selectedReport.releasedAt ? "Resend" : "Send to Parent"}
+                        </Button>
+                      )}
                       <Button variant="outline" size="sm" className="gap-2" disabled={!isPaid} onClick={() => printCard(selectedReport, teacherComment, classTeacherName, studentAttendance, studentPayments)}><Printer className="h-4 w-4" />Print</Button>
                       <Button variant="outline" size="sm" className="gap-2" disabled={!isPaid} onClick={() => downloadCard(selectedReport, teacherComment, classTeacherName, studentAttendance, studentPayments)}><Download className="h-4 w-4" />Download PDF</Button>
                     </div>
@@ -673,6 +773,58 @@ export default function ReportCardsPage() {
               </div>
             )
           })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* What the send actually did. A partial send is the normal case, so the
+          list of who was held back and why is the point of this dialog, not an
+          afterthought — otherwise "Sent 12" reads as "all done". */}
+      <Dialog open={!!sendSummary} onOpenChange={() => setSendSummary(null)}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Report cards sent</DialogTitle>
+          </DialogHeader>
+          {sendSummary && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 text-center">
+                <div className="rounded-lg border bg-accent/10 p-3">
+                  <p className="text-2xl font-bold text-accent">{sendSummary.sent}</p>
+                  <p className="text-xs text-muted-foreground">
+                    report card{sendSummary.sent === 1 ? "" : "s"} released
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-muted/40 p-3">
+                  <p className="text-2xl font-bold">{sendSummary.notified}</p>
+                  <p className="text-xs text-muted-foreground">
+                    guardian{sendSummary.notified === 1 ? "" : "s"} notified
+                  </p>
+                </div>
+              </div>
+
+              {sendSummary.skipped?.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold">
+                    Held back ({sendSummary.skipped.length})
+                  </p>
+                  <div className="space-y-1.5">
+                    {sendSummary.skipped.map((row: any) => (
+                      <div key={row.student} className="rounded-md border p-2 text-sm">
+                        <p className="font-medium">
+                          {row.studentName}{" "}
+                          <span className="font-mono text-xs text-muted-foreground">{row.regNo}</span>
+                        </p>
+                        <p className="text-xs text-muted-foreground">{row.reason}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Every report card in this selection reached its parents.
+                </p>
+              )}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

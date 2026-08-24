@@ -140,10 +140,12 @@ export default function AttendancePage() {
     api.get("/api/classes/?page_size=500").then(r => {
       const cls = getResults(r.data) as any[]
       setClasses(cls)
-      // Preselect the first of the teacher's own classes; the picker still lets
-      // them switch, since a teacher can be assigned to more than one.
+      // Open on a class the teacher can actually record for, falling back to the
+      // first they can see — a subject teacher still gets a register to read
+      // rather than a blank screen.
       if (isTeacher && cls.length > 0) {
-        setStuClass(String(cls[0].id))
+        const preferred = cls.find((c: any) => c.canManageAttendance) || cls[0]
+        setStuClass(String(preferred.id))
       }
       if (isTeacher && cls.length === 0) {
         setStuMsg("You are not assigned to any class yet. Ask an administrator to assign you one.")
@@ -182,7 +184,7 @@ export default function AttendancePage() {
   // Save student attendance — class aggregate auto-updates (reads same source)
   const saveStudentAttendance = async () => {
     if (!user || !["super_admin", "admin", "teacher"].includes(user.role)) return
-    if (!stuClass) return
+    if (!stuClass || !canEditStudentAttendance) return
     setStuSaving(true); setStuMsg("")
     try {
       for (const student of students) {
@@ -227,6 +229,13 @@ export default function AttendancePage() {
       setTchMsg("Failed to save some records.")
     } finally { setTchSaving(false) }
   }
+
+  // The register belongs to the class teacher. A subject teacher shares the
+  // class but not the responsibility, so the roll below renders read-only for
+  // them — the backend refuses the write either way, and a form that cannot
+  // save is worse than one that says so.
+  const selectedStuClass = classes.find(c => String(c.id) === stuClass)
+  const canEditStudentAttendance = !!selectedStuClass?.canManageAttendance
 
   const filteredRecords = attendanceData.filter(record =>
     classFilter === "all" || record.className === classFilter
@@ -428,27 +437,35 @@ export default function AttendancePage() {
                     </div>
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Class *</label>
-                      {isTeacher ? (
-                        // Teachers see their class name but cannot change it
-                        <div className="flex h-10 w-44 items-center rounded-md border border-input bg-muted px-3 text-sm font-medium">
-                          {classes.find(c => String(c.id) === stuClass)?.name || "Loading..."}
-                        </div>
-                      ) : (
-                        <Select value={stuClass} onValueChange={v => setStuClass(v)}>
-                          <SelectTrigger className="w-44"><SelectValue placeholder="Select class" /></SelectTrigger>
-                          <SelectContent>
-                            {classes.map((cls: any) => (
-                              <SelectItem key={cls.id} value={String(cls.id)}>{cls.name}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
+                      {/* A teacher can hold one class and take a subject in
+                          several others, so the picker is theirs too — the list
+                          is already scoped to their classes by the backend. */}
+                      <Select value={stuClass} onValueChange={v => setStuClass(v)}>
+                        <SelectTrigger className="w-56"><SelectValue placeholder="Select class" /></SelectTrigger>
+                        <SelectContent>
+                          {classes.map((cls: any) => (
+                            <SelectItem key={cls.id} value={String(cls.id)}>
+                              {cls.name}{cls.canManageAttendance ? "" : " (view only)"}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
-                  <Button onClick={saveStudentAttendance} disabled={stuSaving || !stuClass}>
-                    <Save className="mr-2 h-4 w-4" /> {stuSaving ? "Saving..." : "Save Attendance"}
-                  </Button>
+                  {canEditStudentAttendance && (
+                    <Button onClick={saveStudentAttendance} disabled={stuSaving || !stuClass}>
+                      <Save className="mr-2 h-4 w-4" /> {stuSaving ? "Saving..." : "Save Attendance"}
+                    </Button>
+                  )}
                 </div>
+                {stuClass && !canEditStudentAttendance && (
+                  <p className="mt-2 flex items-start gap-1.5 text-xs text-muted-foreground">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    You take a subject in {selectedStuClass?.name || "this class"} but are not its
+                    class teacher{selectedStuClass?.classTeacherName ? ` — that is ${selectedStuClass.classTeacherName}` : ""}.
+                    You can see this register but only the class teacher can change it.
+                  </p>
+                )}
                 {stuMsg && (
                   <p className={`text-xs mt-2 ${stuMsg.includes("saved") ? "text-accent" : "text-destructive"}`}>{stuMsg}</p>
                 )}
@@ -479,7 +496,11 @@ export default function AttendancePage() {
                     <CardTitle className="text-base font-semibold">
                       Student Roll — {classes.find(c => String(c.id) === stuClass)?.name}
                     </CardTitle>
-                    <CardDescription>Mark attendance for each student. Changes are saved when you click Save.</CardDescription>
+                    <CardDescription>
+                      {canEditStudentAttendance
+                        ? "Mark attendance for each student. Changes are saved when you click Save."
+                        : "Attendance recorded by the class teacher, shown read-only."}
+                    </CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="rounded-lg border border-border overflow-hidden">
@@ -509,36 +530,62 @@ export default function AttendancePage() {
                               </TableCell>
                               <TableCell className="text-xs text-muted-foreground">{student.regNo || student.reg_no}</TableCell>
                               <TableCell>
-                                <Select
-                                  value={stuSheet[student.id] || "present"}
-                                  onValueChange={v => setStuSheet(prev => ({ ...prev, [student.id]: v }))}
-                                >
-                                  <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="present">Present</SelectItem>
-                                    <SelectItem value="absent">Absent</SelectItem>
-                                    <SelectItem value="late">Late</SelectItem>
-                                  </SelectContent>
-                                </Select>
+                                {canEditStudentAttendance ? (
+                                  <Select
+                                    value={stuSheet[student.id] || "present"}
+                                    onValueChange={v => setStuSheet(prev => ({ ...prev, [student.id]: v }))}
+                                  >
+                                    <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="present">Present</SelectItem>
+                                      <SelectItem value="absent">Absent</SelectItem>
+                                      <SelectItem value="late">Late</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                ) : (() => {
+                                  // No record yet is its own state: showing an
+                                  // unmarked pupil as "Present" would put words in
+                                  // the class teacher's mouth.
+                                  const marked = stuRecords.find((r: any) => r.student === student.id)
+                                  const status = marked?.status
+                                  const tone =
+                                    status === "present" ? "bg-accent/10 text-accent border-accent/30"
+                                    : status === "absent" ? "bg-destructive/10 text-destructive border-destructive/30"
+                                    : status === "late" ? "bg-yellow-500/10 text-yellow-700 border-yellow-400/30"
+                                    : "bg-muted text-muted-foreground"
+                                  return (
+                                    <Badge variant="outline" className={`text-xs capitalize ${tone}`}>
+                                      {status || "Not marked"}
+                                    </Badge>
+                                  )
+                                })()}
                               </TableCell>
                               <TableCell className="hidden md:table-cell">
-                                <Input
-                                  className="h-8 text-xs w-48"
-                                  placeholder="Optional note..."
-                                  value={stuNotes[student.id] || ""}
-                                  onChange={e => setStuNotes(prev => ({ ...prev, [student.id]: e.target.value }))}
-                                />
+                                {canEditStudentAttendance ? (
+                                  <Input
+                                    className="h-8 text-xs w-48"
+                                    placeholder="Optional note..."
+                                    value={stuNotes[student.id] || ""}
+                                    onChange={e => setStuNotes(prev => ({ ...prev, [student.id]: e.target.value }))}
+                                  />
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">
+                                    {stuRecords.find((r: any) => r.student === student.id)?.note || "—"}
+                                  </span>
+                                )}
                               </TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
                       </Table>
                     </div>
-                    <div className="flex justify-end mt-4">
-                      <Button onClick={saveStudentAttendance} disabled={stuSaving}>
-                        <Save className="mr-2 h-4 w-4" /> {stuSaving ? "Saving..." : "Save Attendance"}
-                      </Button>
-                    </div>
+                    {canEditStudentAttendance && (
+                      <div className="flex justify-end mt-4">
+                        <Button onClick={saveStudentAttendance} disabled={stuSaving}>
+                          <Save className="mr-2 h-4 w-4" /> {stuSaving ? "Saving..." : "Save Attendance"}
+                        </Button>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </>

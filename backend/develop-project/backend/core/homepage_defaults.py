@@ -129,3 +129,95 @@ def contact_phones():
         {"label": "Primary Enquiries", "value": "+255 652 898 731"},
         {"label": "Secondary Enquiries", "value": "+255 777 397 422"},
     ]
+
+
+def nav_links():
+    return [
+        {"label": "About", "href": "/#about"},
+        {"label": "Programs", "href": "/#programs"},
+        {"label": "Admissions", "href": "/#admissions"},
+        {"label": "News", "href": "/#news"},
+        {"label": "Support", "href": "/support"},
+        {"label": "Team", "href": "/team"},
+        {"label": "Fundraisers", "href": "/fundraisers"},
+        {"label": "Contact", "href": "/#contact"},
+    ]
+
+
+def about_images():
+    return [
+        {"image": "https://images.unsplash.com/photo-1588072432836-e10032774350?w=900&q=80",
+         "alt": "Students in class"},
+        {"image": "https://images.unsplash.com/photo-1509062522246-3755977927d7?w=500&q=80",
+         "alt": "Teacher"},
+        {"image": "https://images.unsplash.com/photo-1427504494785-3a9ca7044f45?w=500&q=80",
+         "alt": "Students studying"},
+    ]
+
+
+def featured_news_post():
+    return {
+        "image": "https://images.unsplash.com/photo-1513258496099-48168024aec0?w=900&q=80",
+        "date": "March 10, 2026",
+        "title": "Students Excel in NECTA National Examinations",
+        "excerpt": "Outstanding performance across NECTA examinations, with multiple students "
+                   "achieving top national rankings — a testament to our academic rigour and the "
+                   "dedication of our faculty and students.",
+        "link": "",
+    }
+
+
+def news_cards():
+    return [
+        {
+            "image": "https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=600&q=80",
+            "category": "Infrastructure", "date": "February 20, 2026",
+            "title": "New Science Laboratory Officially Inaugurated",
+            "excerpt": "State-of-the-art facilities opened, enhancing practical and experimental "
+                       "learning across all science subjects.",
+            "link": "",
+        },
+        {
+            "image": "https://images.unsplash.com/photo-1427504494785-3a9ca7044f45?w=600&q=80",
+            "category": "Admissions", "date": "February 10, 2026",
+            "title": "Admissions Open for the 2026/2027 Academic Session",
+            "excerpt": "Applications now being accepted for all three educational levels at our "
+                       "Kisauni campus.",
+            "link": "",
+        },
+        {
+            "image": "https://images.unsplash.com/photo-1516534775068-ba3e7458af70?w=600&q=80",
+            "category": "Community", "date": "January 15, 2026",
+            "title": "Annual Prize-Giving Day Celebrates Student Achievement",
+            "excerpt": "Top performers honoured in a ceremony attended by families, faculty, and "
+                       "community leaders.",
+            "link": "",
+        },
+    ]
+
+
+def footer_registration_lines():
+    return [
+        "Reg. No. P 10082026  |  ZRB: Z052610299",
+        "TIN: 175-002-324  |  BSL-SP20025-2026/51066",
+    ]
+
+
+def footer_school_links():
+    return [
+        {"label": "About Us", "href": "/#about"},
+        {"label": "Our Programs", "href": "/#programs"},
+        {"label": "Admissions", "href": "/#admissions"},
+        {"label": "Campus Life", "href": "/#gallery"},
+        {"label": "News", "href": "/#news"},
+    ]
+
+
+def footer_portal_links():
+    return [
+        {"label": "Student Portal", "href": "/login"},
+        {"label": "Parent Portal", "href": "/login"},
+        {"label": "Staff Portal", "href": "/login"},
+        {"label": "Results Portal", "href": "/results"},
+        {"label": "Admin Login", "href": "/login"},
+    ]

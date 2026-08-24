@@ -9,6 +9,7 @@ import {
   GraduationCap, Users, BookOpen, Shield, ArrowRight,
   Phone, MapPin, Clock, Award, ChevronRight, Heart,
   Star, Globe, Sparkles, CheckCircle2, FileCheck,
+  Facebook, Twitter, Instagram, Youtube, Linkedin, MessageCircle, Send as SendIcon,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -22,6 +23,49 @@ const FEATURE_ICONS: Record<string, any> = {
   globe: Globe, award: Award, star: Star, sparkles: Sparkles,
   graduation: GraduationCap, check: CheckCircle2,
 }
+
+/** Navigation shown until an administrator edits it under Dashboard → Homepage. */
+/** Social networks the footer knows how to render an icon for. */
+const SOCIAL_ICONS: Record<string, any> = {
+  facebook: Facebook, twitter: Twitter, x: Twitter, instagram: Instagram,
+  youtube: Youtube, linkedin: Linkedin, whatsapp: MessageCircle, telegram: SendIcon,
+}
+
+/** Category chip colours, cycled in order. Presentation, so not editable. */
+const NEWS_CATEGORY_COLORS = ["bg-primary", "bg-accent", "bg-violet-500"]
+
+const FEATURED_NEWS_FALLBACK = {
+  image: "https://images.unsplash.com/photo-1513258496099-48168024aec0?w=900&q=80",
+  date: "March 10, 2026",
+  title: "Students Excel in NECTA National Examinations",
+  excerpt:
+    "Outstanding performance across NECTA examinations, with multiple students achieving top national rankings \u2014 a testament to our academic rigour and the dedication of our faculty and students.",
+  link: "",
+}
+
+const NEWS_CARDS_FALLBACK = [
+  {
+    image: "https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=600&q=80",
+    category: "Infrastructure",
+    date: "February 20, 2026",
+    title: "New Science Laboratory Officially Inaugurated",
+    excerpt: "State-of-the-art facilities opened, enhancing practical and experimental learning across all science subjects.",
+  },
+  {
+    image: "https://images.unsplash.com/photo-1427504494785-3a9ca7044f45?w=600&q=80",
+    category: "Admissions",
+    date: "February 10, 2026",
+    title: "Admissions Open for the 2026/2027 Academic Session",
+    excerpt: "Applications now being accepted for all three educational levels at our Kisauni campus.",
+  },
+  {
+    image: "https://images.unsplash.com/photo-1516534775068-ba3e7458af70?w=600&q=80",
+    category: "Community",
+    date: "January 15, 2026",
+    title: "Annual Prize-Giving Day Celebrates Student Achievement",
+    excerpt: "Top performers honoured in a ceremony attended by families, faculty, and community leaders.",
+  },
+]
 
 const NAV_LINKS = [
   { label: "About",       href: "/#about" },
@@ -180,14 +224,53 @@ export default function HomePage() {
       .catch(() => {})
   }, [])
 
+  // Maintenance mode replaces the page outright. Staff still need a way in, so
+  // the login link stays — locking the school out of its own dashboard while the
+  // homepage is down would be the worst possible time for it.
+  if (content.maintenance_mode_enabled) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-6 px-6 text-center"
+        style={{ background: "oklch(0.11 0.03 250)" }}>
+        <img src={branding.logo} alt={branding.schoolName} style={{ width: 64, height: 64 }}
+          className="rounded-2xl object-cover ring-1 ring-white/10" />
+        <h1 className="text-3xl font-black text-white" style={{ fontFamily: "var(--font-heading)" }}>
+          {branding.schoolName}
+        </h1>
+        <p className="max-w-md text-[15px] text-white/50 leading-[1.8]">
+          {txt("maintenance_mode_message", "Our website is undergoing scheduled maintenance. Please check back shortly.")}
+        </p>
+        <Link href="/login">
+          <Button className="h-11 px-7 text-sm font-bold text-white" style={{ background: "var(--accent)" }}>
+            {txt("nav_login_label", "Login")}
+          </Button>
+        </Link>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-background overflow-x-hidden">
 
       {/* ---------------------------------------------------
           NAVIGATION � fixed dark header
       ---------------------------------------------------- */}
+      {/* Administrator-supplied CSS, last in the cascade so it can override
+          anything above it. Injected as-is: only an admin can set it. */}
+      {content.custom_css ? (
+        <style dangerouslySetInnerHTML={{ __html: String(content.custom_css) }} />
+      ) : null}
+
+      {content.announcement_banner_enabled && txt("announcement_banner_text", "") ? (
+        <div className="fixed top-0 inset-x-0 z-[60] px-6 py-2 text-center text-[12px] font-semibold text-white"
+          style={{ background: "var(--accent)" }}>
+          {txt("announcement_banner_text", "")}
+        </div>
+      ) : null}
+
       <header
-        className="fixed top-0 inset-x-0 z-50 border-b border-white/8 backdrop-blur-xl"
+        className={`fixed inset-x-0 z-50 border-b border-white/8 backdrop-blur-xl ${
+          content.announcement_banner_enabled && txt("announcement_banner_text", "") ? "top-9" : "top-0"
+        }`}
         style={{ background: "oklch(0.13 0.03 250 / 0.96)" }}
       >
         <div className="mx-auto max-w-7xl px-6 h-16 flex items-center justify-between">
@@ -202,7 +285,7 @@ export default function HomePage() {
           </Link>
 
           <nav className="hidden md:flex items-center gap-7">
-            {NAV_LINKS.map((n) => (
+            {list<any>("nav_links", NAV_LINKS).map((n) => (
               <Link key={n.label} href={n.href}
                 className={`text-[13px] font-medium transition-colors duration-200 tracking-wide ${
                   pathname === n.href ? "text-accent font-bold" : "text-white/55 hover:text-white"
@@ -216,7 +299,7 @@ export default function HomePage() {
             <Link href="/results">
               <Button variant="ghost" size="sm"
                 className="text-[12px] text-white/60 hover:text-white hover:bg-white/8 h-8 px-3">
-                Results
+                {txt("nav_results_label", "Results")}
               </Button>
             </Link>
             {/* Apply Now — only shown when an admission window is open */}
@@ -226,14 +309,14 @@ export default function HomePage() {
                   className="text-[12px] h-8 px-4 font-bold shadow-lg text-white gap-1.5"
                   style={{ background: "oklch(0.52 0.18 145)" }}>
                   <span className="h-1.5 w-1.5 rounded-full bg-white/80 animate-pulse" />
-                  Apply Now
+                  {txt("nav_apply_label", "Apply Now")}
                 </Button>
               </Link>
             )}
             <Link href="/login">
               <Button size="sm"
                 className="text-[12px] bg-accent hover:bg-accent/90 text-white h-8 px-4 shadow-lg shadow-accent/20 font-semibold">
-                Login
+                {txt("nav_login_label", "Login")}
               </Button>
             </Link>
           </div>
@@ -284,9 +367,9 @@ export default function HomePage() {
                 admissionWindow ? "text-green-400" : windowClosed ? "text-white/40" : "text-accent"
               }`}>
                 {admissionWindow
-                  ? "Applications Open — Apply Now"
+                  ? txt("hero_applications_open_text", "Applications Open — Apply Now")
                   : windowClosed
-                  ? "Applications Currently Closed"
+                  ? txt("hero_applications_closed_text", "Applications Currently Closed")
                   : txt("hero_badge_text", "Admissions · 2026 / 2027")}
               </span>
             </div>
@@ -369,8 +452,8 @@ export default function HomePage() {
                 >
                   {/* Thumbnail */}
                   <img
-                    src="https://img.youtube.com/vi/0t9kQG1Dqv0/maxresdefault.jpg"
-                    alt="Campus Tour Thumbnail"
+                    src={txt("hero_video_thumbnail", "https://img.youtube.com/vi/0t9kQG1Dqv0/maxresdefault.jpg")}
+                    alt={txt("hero_video_caption", "Campus Tour")}
                     className="w-full h-full object-cover"
                   />
                   {/* Dark overlay */}
@@ -387,7 +470,7 @@ export default function HomePage() {
               )}
             </div>
             <p className="text-[11px] text-white/30 text-center tracking-[0.12em] uppercase">
-              Campus Tour &mdash; AL NAMAA ACADEMY
+              {txt("hero_video_caption", "Campus Tour — AL NAMAA ACADEMY")}
             </p>
           </div>
 
@@ -397,7 +480,7 @@ export default function HomePage() {
         {/* Scroll cue */}
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 opacity-30">
           <div className="w-px h-10 bg-white/40" />
-          <span className="text-[9px] text-white/50 tracking-[0.3em] uppercase">Scroll</span>
+          <span className="text-[9px] text-white/50 tracking-[0.3em] uppercase">{txt("hero_scroll_label", "Scroll")}</span>
         </div>
       </section>
 
@@ -455,27 +538,30 @@ export default function HomePage() {
               <div className="mt-8">
                 <Link href="#admissions">
                   <Button className="h-11 px-7 text-sm font-semibold shadow-lg shadow-primary/15">
-                    {txt("hero_primary_cta", "Apply for Admission")} <ArrowRight className="ml-2 h-4 w-4" />
+                    {txt("about_cta", "Apply for Admission")} <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
                 </Link>
               </div>
             </div>
 
             {/* Right � photo collage */}
+            {/* The first image spans both columns; the rest sit beside each
+                other, so the collage keeps its shape at any number of images. */}
             <div className="reveal-right order-1 lg:order-2 grid grid-cols-2 gap-3">
-              <div className="col-span-2 relative h-64 rounded-2xl overflow-hidden shadow-xl">
-                <Image src="https://images.unsplash.com/photo-1588072432836-e10032774350?w=900&q=80"
-                  alt="Students in class" fill className="object-cover hover:scale-105 transition-transform duration-700" />
-                <div className="absolute inset-0 bg-gradient-to-t from-primary/20 to-transparent" />
-              </div>
-              <div className="relative h-44 rounded-xl overflow-hidden shadow-lg">
-                <Image src="https://images.unsplash.com/photo-1509062522246-3755977927d7?w=500&q=80"
-                  alt="Teacher" fill className="object-cover hover:scale-105 transition-transform duration-700" />
-              </div>
-              <div className="relative h-44 rounded-xl overflow-hidden shadow-lg">
-                <Image src="https://images.unsplash.com/photo-1427504494785-3a9ca7044f45?w=500&q=80"
-                  alt="Students studying" fill className="object-cover hover:scale-105 transition-transform duration-700" />
-              </div>
+              {list<any>("about_images", [
+                { image: "https://images.unsplash.com/photo-1588072432836-e10032774350?w=900&q=80", alt: "Students in class" },
+                { image: "https://images.unsplash.com/photo-1509062522246-3755977927d7?w=500&q=80", alt: "Teacher" },
+                { image: "https://images.unsplash.com/photo-1427504494785-3a9ca7044f45?w=500&q=80", alt: "Students studying" },
+              ]).map((img, i) => (
+                <div key={`${img.image}-${i}`}
+                  className={`relative overflow-hidden ${i === 0
+                    ? "col-span-2 h-64 rounded-2xl shadow-xl"
+                    : "h-44 rounded-xl shadow-lg"}`}>
+                  <Image src={img.image} alt={img.alt || ""} fill
+                    className="object-cover hover:scale-105 transition-transform duration-700" />
+                  {i === 0 && <div className="absolute inset-0 bg-gradient-to-t from-primary/20 to-transparent" />}
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -697,7 +783,7 @@ export default function HomePage() {
                 style={{ background: "oklch(0.65 0.18 155 / 0.12)" }}>
                 <Star className="h-5 w-5 text-accent" />
               </div>
-              <p className="text-[10px] font-black text-accent uppercase tracking-[0.25em] mb-2">Vision</p>
+              <p className="text-[10px] font-black text-accent uppercase tracking-[0.25em] mb-2">{txt("vision_eyebrow", "Vision")}</p>
               <h3 className="text-xl font-black text-white mb-4" style={{ fontFamily: "var(--font-heading)" }}>
                 {txt("vision_title", "Pathways to Fulfilment")}
               </h3>
@@ -711,7 +797,7 @@ export default function HomePage() {
                 style={{ background: "oklch(0.35 0.12 250 / 0.25)" }}>
                 <GraduationCap className="h-5 w-5 text-white" />
               </div>
-              <p className="text-[10px] font-black text-accent uppercase tracking-[0.25em] mb-2">Mission</p>
+              <p className="text-[10px] font-black text-accent uppercase tracking-[0.25em] mb-2">{txt("mission_eyebrow", "Mission")}</p>
               <h3 className="text-xl font-black text-white mb-4" style={{ fontFamily: "var(--font-heading)" }}>
                 {txt("mission_title", "Excellence in Education")}
               </h3>
@@ -820,15 +906,15 @@ export default function HomePage() {
               </div>
               <div>
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-black text-foreground">Online Applications</span>
+                  <span className="text-sm font-black text-foreground">{txt("admissions_status_title", "Online Applications")}</span>
                   {admissionWindow ? (
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-green-500/10 border border-green-500/25 text-[11px] font-black text-green-600">
                       <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
-                      OPEN
+                      {txt("admissions_status_open_label", "OPEN")}
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-secondary border border-border text-[11px] font-black text-muted-foreground">
-                      CLOSED
+                      {txt("admissions_status_closed_label", "CLOSED")}
                     </span>
                   )}
                 </div>
@@ -848,7 +934,7 @@ export default function HomePage() {
                   </p>
                 ) : (
                   <p className="text-[13px] text-muted-foreground">
-                    No application window is currently open. Check back later or contact the admissions office.
+                    {txt("admissions_status_closed_message", "No application window is currently open. Check back later or contact the admissions office.")}
                   </p>
                 )}
               </div>
@@ -856,7 +942,7 @@ export default function HomePage() {
             {admissionWindow && (
               <Link href="/apply" className="shrink-0">
                 <Button className="h-11 px-7 text-sm font-black shadow-lg shadow-primary/15">
-                  Apply Now <ArrowRight className="ml-2 h-4 w-4" />
+                  {txt("admissions_status_apply_label", "Apply Now")} <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </Link>
             )}
@@ -874,7 +960,7 @@ export default function HomePage() {
           {/* Header row */}
           <div className="flex items-end justify-between mb-10">
             <div>
-              <p className="reveal label-pill text-[11px] font-black text-accent uppercase tracking-[0.22em] mb-4">Latest</p>
+              <p className="reveal label-pill text-[11px] font-black text-accent uppercase tracking-[0.22em] mb-4">{txt("news_label", "Latest")}</p>
               <h2 className="reveal delay-100 text-4xl lg:text-5xl font-black text-foreground leading-[1.06]"
                 style={{ fontFamily: "var(--font-heading)" }}>
                 {txt("news_section_title", "News & Updates")}
@@ -883,70 +969,65 @@ export default function HomePage() {
           </div>
 
           {/* Featured � full-width horizontal card */}
-          <div className="reveal group grid grid-cols-1 lg:grid-cols-2 overflow-hidden rounded-2xl border border-border bg-card hover:shadow-2xl hover:-translate-y-1 transition-all duration-400 cursor-pointer mb-5">
-            <div className="relative h-64 lg:h-auto overflow-hidden">
-              <Image
-                src="https://images.unsplash.com/photo-1513258496099-48168024aec0?w=900&q=80"
-                alt="NECTA results" fill
-                className="object-cover group-hover:scale-105 transition-transform duration-700"
-              />
-              <div className="absolute inset-0 bg-gradient-to-r from-black/20 to-transparent" />
-              <span className="absolute top-4 left-4 px-3 py-1.5 rounded-full text-white text-[10px] font-black shadow-lg"
-                style={{ background: "var(--accent)" }}>
-                Featured
-              </span>
-            </div>
-            <div className="p-8 lg:p-10 flex flex-col justify-center">
-              <p className="text-[11px] font-bold text-muted-foreground mb-3 tracking-wide">March 10, 2026</p>
-              <h3 className="text-2xl lg:text-3xl font-black text-foreground leading-tight group-hover:text-primary transition-colors"
-                style={{ fontFamily: "var(--font-heading)" }}>
-                Students Excel in NECTA National Examinations
-              </h3>
-              <p className="mt-4 text-[14px] text-muted-foreground leading-[1.8]">
-                Outstanding performance across NECTA examinations, with multiple students achieving
-                top national rankings &mdash; a testament to our academic rigour and the dedication of
-                our faculty and students.
-              </p>
-              <div className="mt-6 inline-flex items-center gap-2 text-sm font-black text-primary">
-                Read Full Story <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
+          {(() => {
+            // Clearing every field of the featured post is how an administrator
+            // removes the block, so an empty object must render nothing rather
+            // than an empty card with a stray "Read Full Story" under it.
+            const raw = content.featured_news_post
+            const post: any = raw && typeof raw === "object" && Object.keys(raw).length
+              ? raw
+              : FEATURED_NEWS_FALLBACK
+            if (!post.title && !post.image && !post.excerpt) return null
+            const card = (
+              <div className="reveal group grid grid-cols-1 lg:grid-cols-2 overflow-hidden rounded-2xl border border-border bg-card hover:shadow-2xl hover:-translate-y-1 transition-all duration-400 cursor-pointer mb-5">
+                <div className="relative h-64 lg:h-auto overflow-hidden">
+                  {post.image && (
+                    <Image
+                      src={post.image}
+                      alt={post.title || "Featured story"} fill
+                      className="object-cover group-hover:scale-105 transition-transform duration-700"
+                    />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-r from-black/20 to-transparent" />
+                  <span className="absolute top-4 left-4 px-3 py-1.5 rounded-full text-white text-[10px] font-black shadow-lg"
+                    style={{ background: "var(--accent)" }}>
+                    {txt("news_featured_badge", "Featured")}
+                  </span>
+                </div>
+                <div className="p-8 lg:p-10 flex flex-col justify-center">
+                  <p className="text-[11px] font-bold text-muted-foreground mb-3 tracking-wide">{post.date}</p>
+                  <h3 className="text-2xl lg:text-3xl font-black text-foreground leading-tight group-hover:text-primary transition-colors"
+                    style={{ fontFamily: "var(--font-heading)" }}>
+                    {post.title}
+                  </h3>
+                  <p className="mt-4 text-[14px] text-muted-foreground leading-[1.8]">{post.excerpt}</p>
+                  <div className="mt-6 inline-flex items-center gap-2 text-sm font-black text-primary">
+                    {txt("news_read_full_label", "Read Full Story")} <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
+            )
+            return post.link ? <Link href={post.link}>{card}</Link> : card
+          })()}
 
           {/* 3 equal cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            {[
-              {
-                img: "https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=600&q=80",
-                cat: "Infrastructure", catColor: "bg-primary",
-                date: "February 20, 2026",
-                title: "New Science Laboratory Officially Inaugurated",
-                excerpt: "State-of-the-art facilities opened, enhancing practical and experimental learning across all science subjects.",
-              },
-              {
-                img: "https://images.unsplash.com/photo-1427504494785-3a9ca7044f45?w=600&q=80",
-                cat: "Admissions", catColor: "bg-accent",
-                date: "February 10, 2026",
-                title: "Admissions Open for the 2026/2027 Academic Session",
-                excerpt: "Applications now being accepted for all three educational levels at our Kisauni campus.",
-              },
-              {
-                img: "https://images.unsplash.com/photo-1516534775068-ba3e7458af70?w=600&q=80",
-                cat: "Community", catColor: "bg-violet-500",
-                date: "January 15, 2026",
-                title: "Annual Prize-Giving Day Celebrates Student Achievement",
-                excerpt: "Top performers honoured in a ceremony attended by families, faculty, and community leaders.",
-              },
-            ].map((a, i) => (
-              <div key={a.title}
+            {list<any>("news_cards", NEWS_CARDS_FALLBACK)
+              .slice(0, Number(content.news_max_display) || 3)
+              .map((a: any, i: number) => (
+              <div key={`${a.title}-${i}`}
                 className={`reveal delay-${i * 100} group overflow-hidden rounded-2xl border border-border bg-card hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer flex flex-col`}>
                 <div className="relative h-44 overflow-hidden shrink-0">
-                  <Image src={a.img} alt={a.title} fill
-                    className="object-cover group-hover:scale-105 transition-transform duration-700" />
+                  {a.image && (
+                    <Image src={a.image} alt={a.title || ""} fill
+                      className="object-cover group-hover:scale-105 transition-transform duration-700" />
+                  )}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
-                  <span className={`absolute top-3 left-3 px-2.5 py-1 rounded-full ${a.catColor} text-white text-[10px] font-black`}>
-                    {a.cat}
-                  </span>
+                  {a.category && (
+                    <span className={`absolute top-3 left-3 px-2.5 py-1 rounded-full ${NEWS_CATEGORY_COLORS[i % NEWS_CATEGORY_COLORS.length]} text-white text-[10px] font-black`}>
+                      {a.category}
+                    </span>
+                  )}
                 </div>
                 <div className="p-5 flex flex-col flex-1">
                   <p className="text-[11px] text-muted-foreground mb-2">{a.date}</p>
@@ -956,7 +1037,7 @@ export default function HomePage() {
                   </h4>
                   <p className="text-[12px] text-muted-foreground mt-2 leading-[1.65] line-clamp-2">{a.excerpt}</p>
                   <div className="mt-4 flex items-center gap-1.5 text-[12px] font-bold text-primary">
-                    Read More <ArrowRight className="h-3 w-3 group-hover:translate-x-1 transition-transform" />
+                    {txt("news_read_more_label", "Read More")} <ArrowRight className="h-3 w-3 group-hover:translate-x-1 transition-transform" />
                   </div>
                 </div>
               </div>
@@ -974,17 +1055,16 @@ export default function HomePage() {
           {/* Full-width header */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-end mb-8">
             <div className="reveal-left">
-              <p className="label-pill text-[11px] font-black text-accent uppercase tracking-[0.22em] mb-4">Contact Us</p>
+              <p className="label-pill text-[11px] font-black text-accent uppercase tracking-[0.22em] mb-4">{txt("contact_section_label", "Contact Us")}</p>
               <h2 className="text-4xl lg:text-5xl font-black text-foreground leading-[1.06]"
                 style={{ fontFamily: "var(--font-heading)" }}>
-                Get in Touch &mdash;<br />
-                <span className="text-primary">We&apos;re Here to Help</span>
+                {txt("contact_heading", "Get in Touch \u2014")}<br />
+                <span className="text-primary">{txt("contact_heading_highlight", "We\u2019re Here to Help")}</span>
               </h2>
             </div>
             <div className="reveal-right lg:pb-1">
               <p className="text-[15px] text-muted-foreground leading-[1.8]">
-                Whether you&apos;re a prospective parent, current student family, or community member,
-                our team is ready to assist you with any enquiries about admissions, fees, or general information.
+                {txt("contact_intro", "Whether you\u2019re a prospective parent, current student family, or community member, our team is ready to assist you with any enquiries about admissions, fees, or general information.")}
               </p>
             </div>
           </div>
@@ -1033,11 +1113,12 @@ export default function HomePage() {
               </div>
             </div>
 
-            {/* Right � form */}
-            <div className="reveal-right">
+            {/* Right � form. Hidden entirely when the school would rather take
+                enquiries by phone; the info panel then spans the row. */}
+            <div className={`reveal-right ${content.display_contact_form === false ? "hidden" : ""}`}>
               <div className="rounded-2xl border border-border bg-card p-7 shadow-2xl shadow-foreground/5 h-full flex flex-col">
                 <h3 className="text-xl font-black text-foreground mb-6" style={{ fontFamily: "var(--font-heading)" }}>
-                  Send an Enquiry
+                  {txt("contact_form_title", "Send an Enquiry")}
                 </h3>
                 <form className="space-y-4 flex flex-col flex-1">
                   <div className="grid grid-cols-2 gap-4">
@@ -1071,7 +1152,7 @@ export default function HomePage() {
                     />
                   </div>
                   <Button className="w-full h-11 font-black text-sm shadow-lg shadow-primary/15 mt-auto">
-                    Send Message <ArrowRight className="ml-2 h-4 w-4" />
+                    {txt("contact_form_button", "Send Message")} <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
                 </form>
               </div>
@@ -1110,12 +1191,18 @@ export default function HomePage() {
 
             {/* School links */}
             <div className="md:col-span-2">
-              <h4 className="text-[10px] font-black text-white/40 uppercase tracking-[0.22em] mb-5">School</h4>
+              <h4 className="text-[10px] font-black text-white/40 uppercase tracking-[0.22em] mb-5">{txt("footer_school_links_title", "School")}</h4>
               <div className="flex flex-col gap-3">
-                {["About Us", "Our Programs", "Admissions", "Campus Life", "News"].map((l) => (
-                  <a key={l} href={`#${l.toLowerCase().replace(/\s+/g, "-")}`}
+                {list<any>("footer_school_links", [
+                  { label: "About Us", href: "/#about" },
+                  { label: "Our Programs", href: "/#programs" },
+                  { label: "Admissions", href: "/#admissions" },
+                  { label: "Campus Life", href: "/#gallery" },
+                  { label: "News", href: "/#news" },
+                ]).map((l, i) => (
+                  <a key={`${l.label}-${i}`} href={l.href || "#"}
                     className="text-[12px] text-white/40 hover:text-white transition-colors duration-200">
-                    {l}
+                    {l.label}
                   </a>
                 ))}
               </div>
@@ -1123,12 +1210,18 @@ export default function HomePage() {
 
             {/* Portals */}
             <div className="md:col-span-2">
-              <h4 className="text-[10px] font-black text-white/40 uppercase tracking-[0.22em] mb-5">Portals</h4>
+              <h4 className="text-[10px] font-black text-white/40 uppercase tracking-[0.22em] mb-5">{txt("footer_portals_title", "Portals")}</h4>
               <div className="flex flex-col gap-3">
-                {["Student Portal", "Parent Portal", "Staff Portal", "Results Portal", "Admin Login"].map((l) => (
-                  <a key={l} href="/login"
+                {list<any>("footer_portal_links", [
+                  { label: "Student Portal", href: "/login" },
+                  { label: "Parent Portal", href: "/login" },
+                  { label: "Staff Portal", href: "/login" },
+                  { label: "Results Portal", href: "/results" },
+                  { label: "Admin Login", href: "/login" },
+                ]).map((l, i) => (
+                  <a key={`${l.label}-${i}`} href={l.href || "/login"}
                     className="text-[12px] text-white/40 hover:text-white transition-colors duration-200">
-                    {l}
+                    {l.label}
                   </a>
                 ))}
               </div>
@@ -1136,7 +1229,7 @@ export default function HomePage() {
 
             {/* Contact info */}
             <div className="md:col-span-4">
-              <h4 className="text-[10px] font-black text-white/40 uppercase tracking-[0.22em] mb-5">Contact</h4>
+              <h4 className="text-[10px] font-black text-white/40 uppercase tracking-[0.22em] mb-5">{txt("footer_contact_title", "Contact")}</h4>
               <div className="flex flex-col gap-4">
                 <div className="flex items-start gap-3">
                   <MapPin className="h-3.5 w-3.5 text-accent shrink-0 mt-0.5" />
@@ -1162,16 +1255,49 @@ export default function HomePage() {
             </div>
           </div>
 
+          {(() => {
+            const socials = list<any>("social_media_links", [])
+              .filter((sm) => sm && sm.url)
+            if (!socials.length) return null
+            return (
+              <div className="mt-8 flex items-center gap-3">
+                {socials.map((sm, i) => {
+                  const Icon = SOCIAL_ICONS[String(sm.platform || "").toLowerCase()] ?? Globe
+                  return (
+                    <a key={`${sm.platform}-${i}`} href={sm.url} target="_blank" rel="noopener noreferrer"
+                      aria-label={sm.platform || "Social link"}
+                      className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 text-white/40 hover:text-white hover:border-accent/40 transition-colors">
+                      <Icon className="h-4 w-4" />
+                    </a>
+                  )
+                })}
+              </div>
+            )
+          })()}
+
           <div className="mt-8 flex flex-col sm:flex-row items-center justify-between gap-3">
             <p className="text-[11px] text-white/20">
               {txt("footer_copyright", "© 2026 AL NAMAA ACADEMY. All rights reserved.")}
             </p>
             <p className="text-[11px] font-black text-white/15 tracking-[0.3em] uppercase">
-              &ldquo;Expect Success&rdquo;
+              &ldquo;{txt("footer_tagline", "Expect Success")}&rdquo;
             </p>
           </div>
         </div>
       </footer>
+
+      {content.whatsapp_enabled && txt("whatsapp_number", "") ? (
+        <a
+          href={`https://wa.me/${txt("whatsapp_number", "").replace(/[^0-9]/g, "")}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Chat with us on WhatsApp"
+          className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full shadow-2xl transition-transform hover:scale-110"
+          style={{ background: "#25D366" }}
+        >
+          <MessageCircle className="h-6 w-6 text-white" />
+        </a>
+      ) : null}
     </div>
   )
 }

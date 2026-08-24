@@ -13,7 +13,8 @@ from rest_framework.test import APIClient
 from core.models import SchoolSettings, UserProfile
 from students.models import Student
 from .models import (
-    Class, LessonPlan, StudentAttendance, Subject, Teacher, TeacherAssignment, Timetable,
+    Attendance, Class, LessonPlan, StudentAttendance, Subject, Teacher,
+    TeacherAssignment, Timetable,
 )
 
 
@@ -198,24 +199,180 @@ class LessonPlanTests(TeacherPortalTestCase):
 
 
 class StudentAttendanceTests(TeacherPortalTestCase):
+    """Who may change a register, and who may only read it.
 
-    def test_teacher_can_record_attendance_for_their_own_class(self):
-        res = self.client.post("/api/student-attendance/", {
-            "date": "2026-05-04", "student": self.my_student.id,
-            "student_class": self.mine.id, "status": "present",
+    The base fixture's teacher takes Mathematics in Form 1A without being its
+    class teacher. Form 2A below is the class they actually hold, so every test
+    here contrasts the two roles the same person occupies.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.homeroom = Class.objects.create(
+            name="Form 2A", section="Secondary", level="Form 2", arm="A",
+            class_teacher=self.teacher,
+        )
+        self.homeroom_student = Student.objects.create(
+            reg_no="HOME-1", first_name="Homeroom", last_name="Student",
+            date_of_birth=date(2010, 1, 1), gender="Male",
+            student_class=self.homeroom, admission_date=date(2024, 1, 1),
+        )
+
+    def post_register(self, student, student_class, status="present"):
+        return self.client.post("/api/student-attendance/", {
+            "date": "2026-05-04", "student": student.id,
+            "student_class": student_class.id, "status": status,
         }, format="json")
+
+    # ── the class teacher ─────────────────────────────────────────────
+
+    def test_class_teacher_can_record_attendance_for_their_own_class(self):
+        res = self.post_register(self.homeroom_student, self.homeroom)
 
         self.assertEqual(res.status_code, 201)
 
-    def test_teacher_cannot_record_attendance_for_a_class_they_do_not_teach(self):
-        """get_queryset hides other classes on read; writes must be closed too."""
-        res = self.client.post("/api/student-attendance/", {
-            "date": "2026-05-04", "student": self.their_student.id,
-            "student_class": self.theirs.id, "status": "absent",
-        }, format="json")
+    def test_class_teacher_can_correct_a_record(self):
+        record = StudentAttendance.objects.create(
+            date=date(2026, 5, 4), student=self.homeroom_student,
+            student_class=self.homeroom, status="present",
+        )
+
+        res = self.client.patch(
+            f"/api/student-attendance/{record.id}/",
+            {"status": "late", "note": "Bus was delayed"}, format="json",
+        )
+
+        self.assertEqual(res.status_code, 200)
+        record.refresh_from_db()
+        self.assertEqual(record.status, "late")
+        self.assertEqual(record.note, "Bus was delayed")
+
+    def test_class_teacher_can_delete_a_record(self):
+        record = StudentAttendance.objects.create(
+            date=date(2026, 5, 4), student=self.homeroom_student,
+            student_class=self.homeroom, status="absent",
+        )
+
+        res = self.client.delete(f"/api/student-attendance/{record.id}/")
+
+        self.assertEqual(res.status_code, 204)
+        self.assertFalse(StudentAttendance.objects.filter(id=record.id).exists())
+
+    def test_class_teacher_cannot_move_a_record_into_a_class_they_only_teach(self):
+        """Editing their own register must not become a way to write elsewhere."""
+        record = StudentAttendance.objects.create(
+            date=date(2026, 5, 4), student=self.homeroom_student,
+            student_class=self.homeroom, status="present",
+        )
+
+        res = self.client.patch(
+            f"/api/student-attendance/{record.id}/",
+            {"student_class": self.mine.id}, format="json",
+        )
+
+        self.assertEqual(res.status_code, 403)
+        record.refresh_from_db()
+        self.assertEqual(record.student_class_id, self.homeroom.id)
+
+    # ── the subject teacher ───────────────────────────────────────────
+
+    def test_subject_teacher_cannot_record_attendance(self):
+        res = self.post_register(self.my_student, self.mine)
 
         self.assertEqual(res.status_code, 403)
         self.assertEqual(StudentAttendance.objects.count(), 0)
+
+    def test_subject_teacher_cannot_correct_a_record(self):
+        record = StudentAttendance.objects.create(
+            date=date(2026, 5, 4), student=self.my_student,
+            student_class=self.mine, status="present",
+        )
+
+        res = self.client.patch(
+            f"/api/student-attendance/{record.id}/", {"status": "absent"}, format="json"
+        )
+
+        self.assertEqual(res.status_code, 403)
+        record.refresh_from_db()
+        self.assertEqual(record.status, "present")
+
+    def test_subject_teacher_cannot_delete_a_record(self):
+        record = StudentAttendance.objects.create(
+            date=date(2026, 5, 4), student=self.my_student,
+            student_class=self.mine, status="present",
+        )
+
+        res = self.client.delete(f"/api/student-attendance/{record.id}/")
+
+        self.assertEqual(res.status_code, 403)
+        self.assertTrue(StudentAttendance.objects.filter(id=record.id).exists())
+
+    def test_subject_teacher_can_still_read_the_register(self):
+        """Losing the edit must not cost them the view."""
+        StudentAttendance.objects.create(
+            date=date(2026, 5, 4), student=self.my_student,
+            student_class=self.mine, status="absent",
+        )
+
+        res = self.client.get(f"/api/student-attendance/?student_class={self.mine.id}")
+
+        rows = self.results(res)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["status"], "absent")
+
+    def test_subject_teacher_sees_their_class_in_the_summary(self):
+        StudentAttendance.objects.create(
+            date=date(2026, 5, 4), student=self.my_student,
+            student_class=self.mine, status="present",
+        )
+
+        res = self.client.get("/api/student-attendance/summary/?date=2026-05-04")
+
+        self.assertEqual([r["student_class"] for r in res.json()], [self.mine.id])
+
+    def test_the_refusal_explains_which_role_is_missing(self):
+        res = self.post_register(self.my_student, self.mine)
+
+        self.assertIn("class teacher", res.json()["detail"])
+
+    # ── classes nothing to do with them ───────────────────────────────
+
+    def test_teacher_cannot_record_attendance_for_a_class_they_do_not_teach(self):
+        """get_queryset hides other classes on read; writes must be closed too."""
+        res = self.post_register(self.their_student, self.theirs, status="absent")
+
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(StudentAttendance.objects.count(), 0)
+
+    def test_teacher_cannot_edit_attendance_for_another_class(self):
+        record = StudentAttendance.objects.create(
+            date=date(2026, 5, 4), student=self.their_student,
+            student_class=self.theirs, status="present",
+        )
+
+        res = self.client.patch(
+            f"/api/student-attendance/{record.id}/", {"status": "absent"}, format="json"
+        )
+
+        self.assertEqual(res.status_code, 404)
+        record.refresh_from_db()
+        self.assertEqual(record.status, "present")
+
+    # ── administrators ────────────────────────────────────────────────
+
+    def test_an_admin_records_attendance_for_any_class(self):
+        admin = User.objects.create_user(
+            username="admin_att", email="admin_att@example.com", password="StrongPass123"
+        )
+        UserProfile.objects.update_or_create(user=admin, defaults={"role": "admin"})
+        admin.refresh_from_db()
+        self.client.force_authenticate(user=admin)
+
+        res = self.post_register(self.their_student, self.theirs)
+
+        self.assertEqual(res.status_code, 201)
+
+    # ── the summary is unaffected by the write rule ───────────────────
 
     def test_summary_counts_every_record_not_just_the_first_page(self):
         """Counted in the database, so a big school is not silently truncated."""
@@ -253,16 +410,80 @@ class StudentAttendanceTests(TeacherPortalTestCase):
 
         self.assertEqual([r["student_class"] for r in res.json()], [self.mine.id])
 
-    def test_teacher_cannot_edit_attendance_for_another_class(self):
-        record = StudentAttendance.objects.create(
-            date=date(2026, 5, 4), student=self.their_student,
-            student_class=self.theirs, status="present",
+
+class ClassAttendanceAggregateTests(TeacherPortalTestCase):
+    """The per-class daily totals follow the same rule as the per-student rows."""
+
+    def setUp(self):
+        super().setUp()
+        self.homeroom = Class.objects.create(
+            name="Form 2A", section="Secondary", level="Form 2", arm="A",
+            class_teacher=self.teacher,
         )
 
-        res = self.client.patch(
-            f"/api/student-attendance/{record.id}/", {"status": "absent"}, format="json"
+    def test_class_teacher_can_record_the_class_total(self):
+        res = self.client.post("/api/attendance/", {
+            "date": "2026-05-04", "student_class": self.homeroom.id,
+            "present": 30, "absent": 2, "late": 1,
+        }, format="json")
+
+        self.assertEqual(res.status_code, 201)
+
+    def test_subject_teacher_cannot_record_the_class_total(self):
+        res = self.client.post("/api/attendance/", {
+            "date": "2026-05-04", "student_class": self.mine.id,
+            "present": 30, "absent": 2, "late": 1,
+        }, format="json")
+
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(Attendance.objects.count(), 0)
+
+    def test_subject_teacher_can_still_read_the_class_total(self):
+        Attendance.objects.create(
+            date=date(2026, 5, 4), student_class=self.mine, present=30, absent=2, late=1
         )
 
-        self.assertEqual(res.status_code, 404)
-        record.refresh_from_db()
-        self.assertEqual(record.status, "present")
+        res = self.client.get(f"/api/attendance/?student_class={self.mine.id}")
+
+        self.assertEqual(len(self.results(res)), 1)
+
+
+class AttendancePermissionFlagTests(TeacherPortalTestCase):
+    """/api/classes/ tells the screen which classes it may offer an editor for."""
+
+    def setUp(self):
+        super().setUp()
+        self.homeroom = Class.objects.create(
+            name="Form 2A", section="Secondary", level="Form 2", arm="A",
+            class_teacher=self.teacher,
+        )
+
+    def flags(self, response):
+        return {row["name"]: row["can_manage_attendance"] for row in self.results(response)}
+
+    def test_the_flag_separates_the_two_roles_a_teacher_holds(self):
+        res = self.client.get("/api/classes/")
+
+        flags = self.flags(res)
+        self.assertTrue(flags["Form 2A"])
+        self.assertFalse(flags["Form 1A"])
+
+    def test_an_admin_may_manage_every_class(self):
+        admin = User.objects.create_user(
+            username="admin_flag", email="admin_flag@example.com", password="StrongPass123"
+        )
+        UserProfile.objects.update_or_create(user=admin, defaults={"role": "admin"})
+        admin.refresh_from_db()
+        self.client.force_authenticate(user=admin)
+
+        res = self.client.get("/api/classes/")
+
+        self.assertTrue(all(self.flags(res).values()))
+
+    def test_a_class_with_no_class_teacher_is_not_managed_by_a_subject_teacher(self):
+        """class_teacher is nullable — an empty post must not read as a match."""
+        self.assertIsNone(self.mine.class_teacher_id)
+
+        res = self.client.get("/api/classes/")
+
+        self.assertFalse(self.flags(res)["Form 1A"])

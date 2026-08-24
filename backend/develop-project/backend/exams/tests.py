@@ -7,8 +7,9 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from academics.models import Class, Subject, Teacher, TeacherAssignment
-from core.models import SchoolSettings, UserProfile
-from students.models import Student
+from core.models import Notification, SchoolSettings, UserProfile
+from fees.models import Payment
+from students.models import ParentGuardian, Student
 from .models import ExamMark, ExamResult, SubjectResult
 
 TERM = "Term 2, 2026"
@@ -344,3 +345,338 @@ class RoleAccessTests(ExamPanelTestCase):
         res = self.compute(student_class=self.other_cls.id, ca_types=["CA 1"])
 
         self.assertEqual(res.status_code, 403)
+
+
+class SendReportsToParentsTests(ExamPanelTestCase):
+    """Releasing report cards: who receives one, who is held back, and why."""
+
+    def setUp(self):
+        super().setUp()
+        self.bulk_save([
+            self.mark_payload(student, self.maths, "Final Exam", 60 + index * 10)
+            for index, student in enumerate(self.students)
+        ])
+        self.compute(final_exam_type="Final Exam")
+
+        self.parent_users = {}
+        for index, student in enumerate(self.students):
+            self.parent_users[student.id] = self.link_guardian(
+                student, "parent%d@example.com" % index
+            )
+
+    def link_guardian(self, student, email, relationship="Mother"):
+        """Give ``student`` a guardian with a working portal login."""
+        user = User.objects.create_user(
+            username=email.split("@")[0], email=email, password="StrongPass123"
+        )
+        UserProfile.objects.update_or_create(user=user, defaults={"role": "parent"})
+        user.refresh_from_db()
+        ParentGuardian.objects.create(
+            student=student, user=user, full_name="Guardian of %s" % student.first_name,
+            relationship=relationship, phone="0700000000", email=email,
+        )
+        return user
+
+    def pay(self, student, amount=100000, payment_status="confirmed", term=TERM):
+        return Payment.objects.create(
+            student=student, amount=amount, date=date(2026, 3, 1),
+            method="Cash", status=payment_status, term=term,
+        )
+
+    def send(self, **overrides):
+        body = {"student_class": self.cls.id, "term": TERM, "academic_session": SESSION}
+        body.update(overrides)
+        return self.client.post("/api/exam-results/send_to_parents/", body, format="json")
+
+    def reasons_by_student(self, response):
+        return {row["student"]: row["reason"] for row in response.json()["skipped"]}
+
+    # ── the fee gate ──────────────────────────────────────────────────
+
+    def test_report_is_sent_when_the_term_fee_is_confirmed(self):
+        for student in self.students:
+            self.pay(student)
+
+        res = self.send()
+
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["sent"], 3)
+        self.assertEqual(res.json()["skipped"], [])
+        self.assertEqual(ExamResult.objects.filter(released_at__isnull=True).count(), 0)
+
+    def test_student_with_no_payment_recorded_is_held_back(self):
+        self.pay(self.students[0])
+
+        res = self.send()
+
+        self.assertEqual(res.json()["sent"], 1)
+        reasons = self.reasons_by_student(res)
+        self.assertEqual(set(reasons), {self.students[1].id, self.students[2].id})
+        self.assertIn("No confirmed fee payment", reasons[self.students[1].id])
+        self.assertIsNone(ExamResult.objects.get(student=self.students[1]).released_at)
+
+    def test_a_payment_still_awaiting_confirmation_holds_the_report_back(self):
+        self.pay(self.students[0])
+        self.pay(self.students[0], amount=25000, payment_status="pending")
+
+        res = self.send()
+
+        self.assertEqual(res.json()["sent"], 0)
+        self.assertIn("awaiting confirmation", self.reasons_by_student(res)[self.students[0].id])
+
+    def test_a_failed_payment_is_neither_credit_nor_a_blocker(self):
+        self.pay(self.students[0])
+        self.pay(self.students[0], amount=25000, payment_status="failed")
+
+        res = self.send()
+
+        self.assertEqual(res.json()["sent"], 1)
+
+    def test_a_payment_for_another_term_does_not_clear_the_student(self):
+        self.pay(self.students[0], term="Term 1, 2026")
+
+        res = self.send()
+
+        self.assertEqual(res.json()["sent"], 0)
+        self.assertIn("No confirmed fee payment", self.reasons_by_student(res)[self.students[0].id])
+
+    # ── who actually gets the notification ────────────────────────────
+
+    def test_every_linked_guardian_is_notified(self):
+        self.link_guardian(self.students[0], "father0@example.com", relationship="Father")
+        self.pay(self.students[0])
+
+        res = self.send()
+
+        self.assertEqual(res.json()["sent"], 1)
+        self.assertEqual(res.json()["notified"], 2)
+        self.assertEqual(Notification.objects.count(), 2)
+
+    def test_notification_names_the_student_and_the_term(self):
+        self.pay(self.students[0])
+
+        self.send()
+
+        note = Notification.objects.get(recipient=self.parent_users[self.students[0].id])
+        self.assertIn(TERM, note.title)
+        self.assertIn(self.students[0].full_name, note.message)
+
+    def test_student_with_no_portal_login_is_held_back(self):
+        ParentGuardian.objects.filter(student=self.students[0]).update(user=None)
+        self.pay(self.students[0])
+
+        res = self.send()
+
+        self.assertEqual(res.json()["sent"], 0)
+        self.assertIn("No parent portal account", self.reasons_by_student(res)[self.students[0].id])
+
+    def test_result_with_no_subject_breakdown_is_held_back(self):
+        extra = Student.objects.create(
+            reg_no="REG-99", first_name="Uncomputed", last_name="Student",
+            date_of_birth=date(2010, 1, 1), gender="Female",
+            student_class=self.cls, admission_date=date(2024, 1, 1),
+        )
+        self.link_guardian(extra, "parent99@example.com")
+        self.pay(extra)
+        ExamResult.objects.create(
+            student=extra, student_class=self.cls, term=TERM, academic_session=SESSION,
+        )
+
+        res = self.send()
+
+        self.assertIn("No computed result yet", self.reasons_by_student(res)[extra.id])
+
+    # ── sending twice ─────────────────────────────────────────────────
+
+    def test_a_report_is_not_sent_twice_by_default(self):
+        self.pay(self.students[0])
+        self.send()
+
+        res = self.send()
+
+        self.assertEqual(res.json()["sent"], 0)
+        self.assertIn("Already sent", self.reasons_by_student(res)[self.students[0].id])
+        self.assertEqual(Notification.objects.count(), 1)
+
+    def test_resend_sends_a_corrected_report_again(self):
+        self.pay(self.students[0])
+        self.send()
+
+        res = self.send(resend=True)
+
+        self.assertEqual(res.json()["sent"], 1)
+        self.assertEqual(Notification.objects.count(), 2)
+
+    def test_student_ids_narrows_the_send_to_one_family(self):
+        for student in self.students:
+            self.pay(student)
+
+        res = self.send(student_ids=[self.students[0].id])
+
+        self.assertEqual(res.json()["sent"], 1)
+        self.assertEqual(res.json()["skipped"], [])
+        self.assertIsNotNone(ExamResult.objects.get(student=self.students[0]).released_at)
+        self.assertIsNone(ExamResult.objects.get(student=self.students[1]).released_at)
+
+    # ── what a parent can see ─────────────────────────────────────────
+
+    def test_parent_cannot_read_a_report_that_was_never_released(self):
+        self.client.force_authenticate(user=self.parent_users[self.students[0].id])
+
+        res = self.client.get("/api/exam-results/")
+
+        self.assertEqual(res.json()["count"], 0)
+
+    def test_parent_reads_the_report_once_it_is_released(self):
+        self.pay(self.students[0])
+        self.send()
+        self.client.force_authenticate(user=self.parent_users[self.students[0].id])
+
+        res = self.client.get("/api/exam-results/")
+
+        self.assertEqual(res.json()["count"], 1)
+        self.assertEqual(res.json()["results"][0]["student"], self.students[0].id)
+
+    def test_parent_dashboard_hides_an_unreleased_report(self):
+        self.client.force_authenticate(user=self.parent_users[self.students[0].id])
+
+        res = self.client.get("/api/parent/dashboard/")
+
+        self.assertEqual(res.json()["children"][0]["results"], [])
+
+    def test_parent_dashboard_shows_a_released_report(self):
+        self.pay(self.students[0])
+        self.send()
+        self.client.force_authenticate(user=self.parent_users[self.students[0].id])
+
+        res = self.client.get("/api/parent/dashboard/")
+
+        self.assertEqual(len(res.json()["children"][0]["results"]), 1)
+
+    def test_release_cannot_be_forced_through_a_plain_patch(self):
+        """The fee check lives in send_to_parents; a PATCH must not bypass it."""
+        result = ExamResult.objects.get(student=self.students[0])
+
+        res = self.client.patch(
+            "/api/exam-results/%d/" % result.id,
+            {"released_at": "2026-03-01T00:00:00Z"},
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, 200)
+        result.refresh_from_db()
+        self.assertIsNone(result.released_at)
+
+    # ── scope and validation ──────────────────────────────────────────
+
+    def test_missing_class_or_term_is_rejected(self):
+        self.assertEqual(self.send(term="").status_code, 400)
+        self.assertEqual(self.send(student_class="").status_code, 400)
+
+    def test_sending_before_results_are_computed_returns_404(self):
+        ExamResult.objects.all().delete()
+
+        res = self.send()
+
+        self.assertEqual(res.status_code, 404)
+
+    def test_teacher_cannot_send_report_cards_for_another_class(self):
+        teacher_user = User.objects.create_user(
+            username="teach9", email="teach9@example.com", password="StrongPass123"
+        )
+        UserProfile.objects.update_or_create(user=teacher_user, defaults={"role": "teacher"})
+        teacher_user.refresh_from_db()
+        teacher, _ = Teacher.objects.get_or_create(
+            email="teach9@example.com", defaults={"name": "Teacher Nine"}
+        )
+        TeacherAssignment.objects.create(
+            teacher=teacher, subject=self.maths, student_class=self.other_cls, status="active"
+        )
+        self.client.force_authenticate(user=teacher_user)
+
+        res = self.send(student_class=self.cls.id)
+
+        self.assertEqual(res.status_code, 403)
+
+    def test_all_classes_covers_only_the_classes_the_teacher_owns(self):
+        """A teacher choosing "all" must not release another year group."""
+        teacher_user = User.objects.create_user(
+            username="teach8", email="teach8@example.com", password="StrongPass123"
+        )
+        UserProfile.objects.update_or_create(user=teacher_user, defaults={"role": "teacher"})
+        teacher_user.refresh_from_db()
+        teacher, _ = Teacher.objects.get_or_create(
+            email="teach8@example.com", defaults={"name": "Teacher Eight"}
+        )
+        TeacherAssignment.objects.create(
+            teacher=teacher, subject=self.maths, student_class=self.other_cls, status="active"
+        )
+        for student in self.students:
+            self.pay(student)
+        self.client.force_authenticate(user=teacher_user)
+
+        res = self.send(student_class="all")
+
+        self.assertEqual(res.status_code, 404)
+        self.assertEqual(ExamResult.objects.filter(released_at__isnull=False).count(), 0)
+
+    def test_admin_can_send_across_all_classes_at_once(self):
+        other_student = Student.objects.create(
+            reg_no="REG-B1", first_name="Other", last_name="Class",
+            date_of_birth=date(2010, 1, 1), gender="Male",
+            student_class=self.other_cls, admission_date=date(2024, 1, 1),
+        )
+        self.link_guardian(other_student, "parentb1@example.com")
+        self.bulk_save([{
+            "student": other_student.id, "subject": self.maths.id,
+            "student_class": self.other_cls.id, "term": TERM,
+            "exam_type": "Final Exam", "academic_session": SESSION, "score": 75,
+        }])
+        self.compute(student_class=self.other_cls.id, final_exam_type="Final Exam")
+        for student in self.students + [other_student]:
+            self.pay(student)
+
+        res = self.send(student_class="all")
+
+        self.assertEqual(res.json()["sent"], 4)
+
+    def test_a_parent_cannot_release_report_cards(self):
+        self.pay(self.students[0])
+        self.client.force_authenticate(user=self.parent_users[self.students[0].id])
+
+        res = self.send()
+
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(ExamResult.objects.filter(released_at__isnull=False).count(), 0)
+
+    def test_parent_cannot_read_raw_marks_before_the_report_is_released(self):
+        """The scores add up to the report card, so they follow the same gate."""
+        self.client.force_authenticate(user=self.parent_users[self.students[0].id])
+
+        res = self.client.get("/api/exam-marks/")
+
+        self.assertEqual(res.json()["count"], 0)
+
+    def test_parent_reads_raw_marks_once_the_report_is_released(self):
+        self.pay(self.students[0])
+        self.send()
+        self.client.force_authenticate(user=self.parent_users[self.students[0].id])
+
+        res = self.client.get("/api/exam-marks/")
+
+        self.assertEqual(res.json()["count"], 1)
+        self.assertEqual(res.json()["results"][0]["student"], self.students[0].id)
+
+    def test_releasing_one_term_does_not_expose_another(self):
+        ExamMark.objects.create(
+            student=self.students[0], subject=self.maths, student_class=self.cls,
+            term="Term 1, 2026", exam_type="Final Exam", academic_session=SESSION, score=55,
+        )
+        self.pay(self.students[0])
+        self.send()
+        self.client.force_authenticate(user=self.parent_users[self.students[0].id])
+
+        res = self.client.get("/api/exam-marks/")
+
+        terms = {row["term"] for row in res.json()["results"]}
+        self.assertEqual(terms, {TERM})

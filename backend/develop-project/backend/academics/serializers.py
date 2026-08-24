@@ -1,4 +1,6 @@
 from rest_framework import serializers
+
+from core.utils import get_teacher_for, get_user_role
 from .models import Subject, Teacher, Class, TeacherAssignment, Timetable, Attendance, LessonPlan, AcademicCalendar, StudentAttendance, TeacherAttendance
 
 
@@ -56,13 +58,16 @@ class ClassListSerializer(serializers.ModelSerializer):
     class_teacher_name = serializers.SerializerMethodField()
     subject_names = serializers.SerializerMethodField()
     student_count = serializers.ReadOnlyField()
+    enrolled_count = serializers.SerializerMethodField()
+    can_manage_attendance = serializers.SerializerMethodField()
 
     class Meta:
         model = Class
         fields = [
             "id", "name", "section", "level", "arm", "capacity",
             "room", "status", "class_teacher", "class_teacher_name",
-            "subject_names", "student_count",
+            "subject_names", "student_count", "enrolled_count",
+            "can_manage_attendance",
         ]
 
     def get_class_teacher_name(self, obj):
@@ -70,6 +75,38 @@ class ClassListSerializer(serializers.ModelSerializer):
 
     def get_subject_names(self, obj):
         return list(obj.subjects.values_list("name", flat=True))
+
+    def get_enrolled_count(self, obj):
+        # student_count only counts active students. Marks Entry needs the total
+        # too: a class whose only student is suspended looks identical to an empty
+        # class otherwise, and the screen then shows a blank grid with no reason.
+        return obj.students.count()
+
+    def _signed_in_teacher_id(self):
+        """The Teacher row behind the request, resolved once for the whole list."""
+        if not hasattr(self, "_teacher_id"):
+            request = self.context.get("request")
+            teacher = get_teacher_for(request.user) if request else None
+            self._teacher_id = teacher.id if teacher else None
+        return self._teacher_id
+
+    def get_can_manage_attendance(self, obj):
+        """May the signed-in user edit this class's register, or only read it?
+
+        The attendance screen cannot work this out for itself: teachers are not
+        allowed to read /api/teachers/, so they have no way to compare their own
+        id against ``class_teacher``. Without this flag the page would have to
+        offer everyone an editable register and let the save fail.
+        """
+        request = self.context.get("request")
+        if request is None:
+            return False
+        role = get_user_role(request.user)
+        if role in ("super_admin", "admin"):
+            return True
+        if role != "teacher":
+            return False
+        return obj.class_teacher_id is not None and obj.class_teacher_id == self._signed_in_teacher_id()
 
 
 class ClassDetailSerializer(ClassListSerializer):

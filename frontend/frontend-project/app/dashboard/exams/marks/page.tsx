@@ -120,6 +120,9 @@ export default function MarksEntryPage() {
     }))
 
   const selectedClassData = classes.find(c => c.name === selectedClass)
+  // student_count is active-only, so it cannot tell "nobody enrolled" apart from
+  // "everyone here is suspended" - enrolled_count carries the unfiltered total.
+  const enrolledInClass = Number(selectedClassData?.enrolledCount ?? 0)
   const activeSubjects = selectedClassData
     ? subjectsList.filter(s => s.status === "active" && (selectedClassData.subjectNames || []).includes(s.name))
     : subjectsList.filter(s => s.status === "active")
@@ -349,6 +352,20 @@ export default function MarksEntryPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
+                {classStudents.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="py-10 text-center">
+                      <p className="font-medium text-muted-foreground">
+                        No students available to mark in {selectedClass}.
+                      </p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {enrolledInClass > 0
+                          ? `${enrolledInClass} student${enrolledInClass === 1 ? " is" : "s are"} enrolled here, but Marks Entry only lists students whose status is Active. Reactivate them under Students to enter marks.`
+                          : "No students are enrolled in this class yet. Assign students to it under Students before entering marks."}
+                      </p>
+                    </TableCell>
+                  </TableRow>
+                )}
                 {classStudents.map((student, index) => {
                   const score = parseFloat(marks[student.id] || "")
                   const { grade, color, remark } = !isNaN(score)

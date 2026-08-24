@@ -40,6 +40,7 @@ _SPECIAL = {
     "clear_all":            ("DELETE",  "Notifications"),
     "mark_all_read":        ("UPDATE",  "Notifications"),
     "compute_results":      ("UPDATE",  "Exams"),
+    "send_to_parents":      ("EXPORT",  "Exams"),
     "bulk_save":            ("UPDATE",  "Exams"),
     "promote":              ("UPDATE",  "Students"),
     "upload_document":      ("UPDATE",  "Students"),

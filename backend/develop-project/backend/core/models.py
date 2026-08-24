@@ -118,8 +118,8 @@ class HomePageContent(models.Model):
     about_highlights = models.JSONField(default=list, blank=True)
     news_section_title = models.CharField(max_length=200, default="News & Updates")
     news_section_subtitle = models.CharField(max_length=200, default="Latest school stories, achievements and announcements")
-    featured_news_post = models.JSONField(default=dict, blank=True)
-    news_cards = models.JSONField(default=list, blank=True)
+    featured_news_post = models.JSONField(default=hp.featured_news_post, blank=True)
+    news_cards = models.JSONField(default=hp.news_cards, blank=True)
     vision_title = models.CharField(max_length=200, default="Pathways to Fulfilment")
     vision_description = models.TextField(default="To create pathways that assist every student in achieving their academic and personal goals — empowering them to build fulfilling futures and contribute meaningfully to the wider community.")
     mission_title = models.CharField(max_length=200, default="Excellence in Education")
@@ -285,7 +285,7 @@ class HomePageContent(models.Model):
     # ── About ────────────────────────────────────────────────────────────
     about_label = models.CharField(max_length=120, default="About Our School")
     about_paragraphs = models.JSONField(default=hp.about_paragraphs, blank=True)
-    about_images = models.JSONField(default=list, blank=True)
+    about_images = models.JSONField(default=hp.about_images, blank=True)
 
     # ── Support / sponsorship teaser ─────────────────────────────────────
     support_label = models.CharField(max_length=140, default="Inclusive Education & Sponsorship")
@@ -337,8 +337,62 @@ class HomePageContent(models.Model):
     # ── Footer ───────────────────────────────────────────────────────────
     footer_established = models.CharField(max_length=120, default="Kisauni, Zanzibar • Est. 2020")
     footer_description = models.TextField(default="“Expect Success” — Officially recognised by the Ministry of Education and Vocational Training, Zanzibar. Delivering excellence through Islamic values.")
-    footer_registration_lines = models.JSONField(default=list, blank=True)
+    footer_registration_lines = models.JSONField(default=hp.footer_registration_lines, blank=True)
     footer_copyright = models.CharField(max_length=200, default="© 2026 AL NAMAA ACADEMY. All rights reserved.")
+
+    # ── The remainder of the page ────────────────────────────────────────────
+    # Everything below was previously hard-coded in app/page.tsx, which meant a
+    # school could rename its programmes from the dashboard but not its own
+    # navigation. Each default reproduces exactly what the page used to print.
+
+    # Navigation bar
+    nav_links = models.JSONField(default=hp.nav_links, blank=True)
+    nav_results_label = models.CharField(max_length=60, default="Results")
+    nav_apply_label = models.CharField(max_length=60, default="Apply Now")
+    nav_login_label = models.CharField(max_length=60, default="Login")
+
+    # Hero extras
+    hero_video_thumbnail = models.URLField(blank=True, default="https://img.youtube.com/vi/0t9kQG1Dqv0/maxresdefault.jpg")
+    hero_video_caption = models.CharField(max_length=160, default="Campus Tour — AL NAMAA ACADEMY")
+    hero_scroll_label = models.CharField(max_length=60, default="Scroll")
+    hero_applications_open_text = models.CharField(max_length=160, default="Applications Open — Apply Now")
+    hero_applications_closed_text = models.CharField(max_length=160, default="Applications Currently Closed")
+
+    # About
+    about_cta = models.CharField(max_length=100, default="Apply for Admission")
+
+    # Vision & Mission eyebrows
+    vision_eyebrow = models.CharField(max_length=60, default="Vision")
+    mission_eyebrow = models.CharField(max_length=60, default="Mission")
+
+    # News
+    news_label = models.CharField(max_length=120, default="Latest")
+    news_featured_badge = models.CharField(max_length=60, default="Featured")
+    news_read_full_label = models.CharField(max_length=60, default="Read Full Story")
+    news_read_more_label = models.CharField(max_length=60, default="Read More")
+
+    # Online-application status card
+    admissions_status_title = models.CharField(max_length=120, default="Online Applications")
+    admissions_status_open_label = models.CharField(max_length=60, default="OPEN")
+    admissions_status_closed_label = models.CharField(max_length=60, default="CLOSED")
+    admissions_status_closed_message = models.TextField(default="No application window is currently open. Check back later or contact the admissions office.")
+    admissions_status_apply_label = models.CharField(max_length=60, default="Apply Now")
+
+    # Contact
+    contact_section_label = models.CharField(max_length=120, default="Contact Us")
+    contact_heading = models.CharField(max_length=200, default="Get in Touch —")
+    contact_heading_highlight = models.CharField(max_length=200, default="We’re Here to Help")
+    contact_intro = models.TextField(default="Whether you’re a prospective parent, current student family, or community member, our team is ready to assist you with any enquiries about admissions, fees, or general information.")
+    contact_form_title = models.CharField(max_length=120, default="Send an Enquiry")
+    contact_form_button = models.CharField(max_length=60, default="Send Message")
+
+    # Footer columns
+    footer_school_links_title = models.CharField(max_length=60, default="School")
+    footer_school_links = models.JSONField(default=hp.footer_school_links, blank=True)
+    footer_portals_title = models.CharField(max_length=60, default="Portals")
+    footer_portal_links = models.JSONField(default=hp.footer_portal_links, blank=True)
+    footer_contact_title = models.CharField(max_length=60, default="Contact")
+    footer_tagline = models.CharField(max_length=120, default="Expect Success")
 
     class Meta:
         verbose_name = "Home Page Content"

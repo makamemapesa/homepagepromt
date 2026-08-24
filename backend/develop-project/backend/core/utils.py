@@ -44,21 +44,38 @@ def get_teacher_for(user) -> Optional["object"]:
     return Teacher.objects.filter(email__iexact=email).first()
 
 
+def get_teacher_homeroom_class_ids(teacher) -> set:
+    """Classes this teacher is the *class teacher* of.
+
+    Deliberately narrower than :func:`get_teacher_class_ids`, which also counts
+    every class the teacher merely takes a subject in. A register belongs to the
+    class teacher, so this is the set that decides who may change one — sharing
+    a classroom for one period a week is not the same responsibility.
+
+    Returns an empty set for an unknown teacher, so callers can filter on it
+    without a separate None check.
+    """
+    from academics.models import Class
+
+    if teacher is None:
+        return set()
+    return set(
+        Class.objects.filter(class_teacher=teacher).values_list("id", flat=True)
+    )
+
+
 def get_teacher_class_ids(teacher) -> set:
     """Classes a teacher is responsible for: homeroom plus active assignments.
 
     Returns an empty set for an unknown teacher, so callers can filter on it
     without a separate None check.
     """
-    from academics.models import Class, TeacherAssignment
+    from academics.models import TeacherAssignment
 
     if teacher is None:
         return set()
-    homeroom_ids = set(
-        Class.objects.filter(class_teacher=teacher).values_list("id", flat=True)
-    )
     assigned_ids = set(
         TeacherAssignment.objects.filter(teacher=teacher, status="active")
         .values_list("student_class_id", flat=True)
     )
-    return homeroom_ids | assigned_ids
+    return get_teacher_homeroom_class_ids(teacher) | assigned_ids

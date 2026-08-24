@@ -52,4 +52,10 @@ class ExamResultSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExamResult
         fields = "__all__"
-        read_only_fields = ["id", "total", "average", "position", "grade", "division"]
+        read_only_fields = [
+            "id", "total", "average", "position", "grade", "division",
+            # Set only by ExamResultViewSet.send_to_parents, which is where the
+            # fee check lives. Writable here, a PATCH could publish a report card
+            # to a family that has not paid.
+            "released_at", "released_by",
+        ]

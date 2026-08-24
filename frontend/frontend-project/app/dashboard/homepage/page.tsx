@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useUser } from "@/contexts/user-context"
 import { api } from "@/lib/api-client"
@@ -9,906 +9,779 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
+import { Badge } from "@/components/ui/badge"
+import {
+  Accordion, AccordionContent, AccordionItem, AccordionTrigger,
+} from "@/components/ui/accordion"
+import { Card, CardContent } from "@/components/ui/card"
+import {
+  ArrowDown, ArrowUp, ExternalLink, Plus, RotateCcw, Save, Trash2, TriangleAlert,
+} from "lucide-react"
 
-function SavedBanner() {
-  return (
-    <div className="flex items-center gap-2 text-sm text-accent">
-      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M5 13l4 4L19 7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-      <span>Saved</span>
-    </div>
-  )
+/* ────────────────────────────────────────────────────────────────────────────
+   The editor speaks the same key names as the model and the public page:
+   snake_case, all the way through. The API client camelCases responses for the
+   rest of the dashboard, so the one conversion happens on load and nowhere
+   else — the previous editor sent camelCase keys inside a multipart body, which
+   the API client deliberately does not convert, so the serializer ignored every
+   field and each save was accepted while changing nothing.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+const toSnake = (key: string) => key.replace(/([A-Z])/g, "_$1").toLowerCase()
+
+/** Server-computed fields. Echoing them back is pointless, so they never go. */
+const READ_ONLY = new Set(["id", "updated_at", "logo", "hero_image_resolved"])
+
+type Column = {
+  key: string
+  label: string
+  kind?: "text" | "textarea" | "url"
+  placeholder?: string
 }
 
-interface SectionProps {
-  title: string
-  description?: string
-  children: React.ReactNode
+type Field =
+  // One literal per member: a union discriminant like `"textarea" | "code"`
+  // stops TypeScript narrowing the fallback branch at the bottom of FieldEditor.
+  | { key: string; label: string; kind: "text"; help?: string; placeholder?: string }
+  | { key: string; label: string; kind: "url"; help?: string; placeholder?: string }
+  | { key: string; label: string; kind: "textarea"; help?: string; rows?: number }
+  | { key: string; label: string; kind: "code"; help?: string; rows?: number }
+  | { key: string; label: string; kind: "number"; help?: string }
+  | { key: string; label: string; kind: "switch"; help?: string }
+  | { key: string; label: string; kind: "file"; accept: string; help?: string }
+  | { key: string; label: string; kind: "strings"; itemLabel: string; help?: string }
+  | { key: string; label: string; kind: "rows"; itemLabel: string; columns: Column[]; help?: string }
+  | { key: string; label: string; kind: "record"; columns: Column[]; help?: string }
+
+type Section = { id: string; title: string; blurb: string; fields: Field[] }
+
+const LINK_COLUMNS: Column[] = [
+  { key: "label", label: "Label" },
+  { key: "href", label: "Link", placeholder: "/#about or https://…" },
+]
+
+const VALUE_LABEL_COLUMNS: Column[] = [
+  { key: "value", label: "Value", placeholder: "100%" },
+  { key: "label", label: "Label" },
+]
+
+/**
+ * Every element the public homepage renders, in the order it appears there.
+ * The form builds itself from this list, so a block cannot be quietly left out
+ * of the UI — and adding one to the page means adding one entry here.
+ */
+const SECTIONS: Section[] = [
+  {
+    id: "site",
+    title: "Site-wide",
+    blurb: "Branding, the announcement bar, and switches that affect the whole page.",
+    fields: [
+      { key: "school_name", label: "School name", kind: "text", help: "Shown beside the logo in the header and footer." },
+      { key: "tagline", label: "Tagline", kind: "text" },
+      { key: "logo_upload", label: "Logo (upload)", kind: "file", accept: "image/*", help: "An uploaded logo takes precedence over the URL below." },
+      { key: "logo_url", label: "Logo (URL)", kind: "url" },
+      { key: "announcement_banner_enabled", label: "Show announcement bar", kind: "switch", help: "A strip above the navigation. Stays hidden while the text is empty." },
+      { key: "announcement_banner_text", label: "Announcement text", kind: "text" },
+      { key: "maintenance_mode_enabled", label: "Maintenance mode", kind: "switch", help: "Replaces the entire homepage with the notice below. The Login link stays available." },
+      { key: "maintenance_mode_message", label: "Maintenance notice", kind: "textarea", rows: 3 },
+      { key: "custom_css", label: "Custom CSS", kind: "code", rows: 6, help: "Injected last, so it overrides the page styles. Leave empty unless you know what you are changing." },
+    ],
+  },
+  {
+    id: "nav",
+    title: "Navigation bar",
+    blurb: "The links and buttons across the top of the page.",
+    fields: [
+      { key: "nav_links", label: "Menu links", kind: "rows", itemLabel: "link", columns: LINK_COLUMNS },
+      { key: "nav_results_label", label: "Results button", kind: "text" },
+      { key: "nav_apply_label", label: "Apply button", kind: "text", help: "Only appears while an admission window is open." },
+      { key: "nav_login_label", label: "Login button", kind: "text" },
+    ],
+  },
+  {
+    id: "hero",
+    title: "Hero",
+    blurb: "The full-height banner: headline, buttons, video and the stats row.",
+    fields: [
+      { key: "hero_title", label: "Headline", kind: "text" },
+      { key: "hero_subtitle", label: "Sub-headline", kind: "text" },
+      { key: "hero_description", label: "Description", kind: "textarea", rows: 3 },
+      { key: "hero_badge_text", label: "Eyebrow badge", kind: "text", help: "Replaced automatically while applications are open or closed." },
+      { key: "hero_applications_open_text", label: "Badge — applications open", kind: "text" },
+      { key: "hero_applications_closed_text", label: "Badge — applications closed", kind: "text" },
+      { key: "hero_primary_cta", label: "Primary button", kind: "text" },
+      { key: "hero_secondary_cta", label: "Secondary button", kind: "text" },
+      { key: "hero_image_upload", label: "Background image (upload)", kind: "file", accept: "image/*" },
+      { key: "hero_image", label: "Background image (URL)", kind: "url" },
+      { key: "hero_video_upload", label: "Video (upload)", kind: "file", accept: "video/*", help: "An uploaded video plays instead of the embed URL." },
+      { key: "hero_video_url", label: "Video embed URL", kind: "url", placeholder: "https://www.youtube.com/embed/…" },
+      { key: "hero_video_thumbnail", label: "Video thumbnail", kind: "url" },
+      { key: "hero_video_caption", label: "Video caption", kind: "text" },
+      { key: "hero_scroll_label", label: "Scroll cue", kind: "text" },
+      { key: "hero_stats", label: "Stats row", kind: "rows", itemLabel: "stat", columns: VALUE_LABEL_COLUMNS },
+    ],
+  },
+  {
+    id: "credentials",
+    title: "Credentials strip",
+    blurb: "The registration numbers immediately below the hero.",
+    fields: [
+      {
+        key: "credentials", label: "Credentials", kind: "rows", itemLabel: "credential",
+        columns: [{ key: "label", label: "Label" }, { key: "value", label: "Value" }],
+      },
+    ],
+  },
+  {
+    id: "about",
+    title: "About",
+    blurb: "The two-column introduction and its photo collage.",
+    fields: [
+      { key: "about_label", label: "Eyebrow", kind: "text" },
+      { key: "about_title", label: "Heading", kind: "text" },
+      { key: "about_paragraphs", label: "Paragraphs", kind: "strings", itemLabel: "paragraph" },
+      { key: "about_highlights", label: "Highlight tags", kind: "strings", itemLabel: "tag" },
+      { key: "about_cta", label: "Button", kind: "text" },
+      {
+        key: "about_images", label: "Photo collage", kind: "rows", itemLabel: "photo",
+        help: "The first photo spans the full width; the rest sit beside each other.",
+        columns: [{ key: "image", label: "Image URL", kind: "url" }, { key: "alt", label: "Alt text" }],
+      },
+    ],
+  },
+  {
+    id: "support",
+    title: "Sponsorship teaser",
+    blurb: "The dark panel about inclusive education and sponsorship.",
+    fields: [
+      { key: "support_label", label: "Eyebrow", kind: "text" },
+      { key: "support_title", label: "Heading", kind: "text" },
+      { key: "support_description", label: "Description", kind: "textarea", rows: 3 },
+      { key: "support_cta", label: "Button", kind: "text" },
+      { key: "support_stats", label: "Stats", kind: "rows", itemLabel: "stat", columns: VALUE_LABEL_COLUMNS },
+    ],
+  },
+  {
+    id: "stats",
+    title: "Statistics banner",
+    blurb: "The four large figures on the dark band.",
+    fields: [
+      {
+        key: "stats_banner", label: "Figures", kind: "rows", itemLabel: "figure",
+        columns: [
+          { key: "value", label: "Value", placeholder: "100%" },
+          { key: "label", label: "Label" },
+          { key: "sub", label: "Sub-label" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "programs",
+    title: "Academic programmes",
+    blurb: "The programme cards and their enquiry numbers.",
+    fields: [
+      { key: "programs_label", label: "Eyebrow", kind: "text" },
+      { key: "programs_title", label: "Heading", kind: "text" },
+      {
+        key: "programs", label: "Programmes", kind: "rows", itemLabel: "programme",
+        columns: [
+          { key: "number", label: "Number", placeholder: "01" },
+          { key: "level", label: "Level", placeholder: "Nursery" },
+          { key: "ages", label: "Stage", placeholder: "Early Childhood" },
+          { key: "description", label: "Description", kind: "textarea" },
+          { key: "phone", label: "Enquiries phone" },
+          { key: "image", label: "Image URL", kind: "url" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "features",
+    title: "Why choose us",
+    blurb: "The header row, the accreditation badge and the feature cards.",
+    fields: [
+      { key: "features_label", label: "Eyebrow", kind: "text" },
+      { key: "features_title", label: "Heading", kind: "text" },
+      { key: "features_description", label: "Description", kind: "textarea", rows: 3 },
+      { key: "features_badge_title", label: "Badge title", kind: "text" },
+      { key: "features_badge_subtitle", label: "Badge subtitle", kind: "text" },
+      {
+        key: "features", label: "Feature cards", kind: "rows", itemLabel: "feature",
+        help: "Icon accepts: book, heart, users, shield, globe, award, star, sparkles, graduation, check.",
+        columns: [
+          { key: "icon", label: "Icon", placeholder: "book" },
+          { key: "title", label: "Title" },
+          { key: "description", label: "Description", kind: "textarea" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "purpose",
+    title: "Vision & mission",
+    blurb: "The two cards on the dark band.",
+    fields: [
+      { key: "purpose_label", label: "Eyebrow", kind: "text" },
+      { key: "purpose_title", label: "Heading", kind: "text" },
+      { key: "vision_eyebrow", label: "Vision — eyebrow", kind: "text" },
+      { key: "vision_title", label: "Vision — title", kind: "text" },
+      { key: "vision_description", label: "Vision — text", kind: "textarea", rows: 4 },
+      { key: "mission_eyebrow", label: "Mission — eyebrow", kind: "text" },
+      { key: "mission_title", label: "Mission — title", kind: "text" },
+      { key: "mission_description", label: "Mission — text", kind: "textarea", rows: 4 },
+    ],
+  },
+  {
+    id: "gallery",
+    title: "Campus gallery",
+    blurb: "The photo grid. The first photo is rendered double-height.",
+    fields: [
+      { key: "gallery_label", label: "Eyebrow", kind: "text" },
+      { key: "gallery_title", label: "Heading", kind: "text" },
+      {
+        key: "gallery", label: "Photos", kind: "rows", itemLabel: "photo",
+        columns: [
+          { key: "image", label: "Image URL", kind: "url" },
+          { key: "caption", label: "Caption" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "admissions",
+    title: "Admissions",
+    blurb: "The banner and the live application-status card beneath it.",
+    fields: [
+      { key: "admissions_label", label: "Eyebrow", kind: "text" },
+      { key: "admissions_title", label: "Heading", kind: "text" },
+      { key: "admissions_description", label: "Description", kind: "textarea", rows: 3 },
+      { key: "admissions_cta", label: "Button", kind: "text" },
+      { key: "admission_levels", label: "Levels listed", kind: "strings", itemLabel: "level" },
+      { key: "admissions_status_title", label: "Status card — title", kind: "text" },
+      { key: "admissions_status_open_label", label: "Status card — open badge", kind: "text" },
+      { key: "admissions_status_closed_label", label: "Status card — closed badge", kind: "text" },
+      { key: "admissions_status_closed_message", label: "Status card — closed message", kind: "textarea", rows: 2 },
+      { key: "admissions_status_apply_label", label: "Status card — apply button", kind: "text" },
+    ],
+  },
+  {
+    id: "news",
+    title: "News & updates",
+    blurb: "The featured story and the cards below it.",
+    fields: [
+      { key: "news_label", label: "Eyebrow", kind: "text" },
+      { key: "news_section_title", label: "Heading", kind: "text" },
+      { key: "news_featured_badge", label: "Featured badge", kind: "text" },
+      { key: "news_read_full_label", label: "Featured link text", kind: "text" },
+      { key: "news_read_more_label", label: "Card link text", kind: "text" },
+      { key: "news_max_display", label: "Cards to show", kind: "number" },
+      {
+        key: "featured_news_post", label: "Featured story", kind: "record",
+        help: "Clear the title, excerpt and image to hide the featured story entirely.",
+        columns: [
+          { key: "title", label: "Title" },
+          { key: "date", label: "Date", placeholder: "March 10, 2026" },
+          { key: "excerpt", label: "Excerpt", kind: "textarea" },
+          { key: "image", label: "Image URL", kind: "url" },
+          { key: "link", label: "Links to", kind: "url", placeholder: "Optional" },
+        ],
+      },
+      {
+        key: "news_cards", label: "News cards", kind: "rows", itemLabel: "story",
+        columns: [
+          { key: "title", label: "Title" },
+          { key: "category", label: "Category" },
+          { key: "date", label: "Date" },
+          { key: "excerpt", label: "Excerpt", kind: "textarea" },
+          { key: "image", label: "Image URL", kind: "url" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "contact",
+    title: "Contact",
+    blurb: "The heading, the campus info panel and the enquiry form.",
+    fields: [
+      { key: "contact_section_label", label: "Eyebrow", kind: "text" },
+      { key: "contact_heading", label: "Heading (first line)", kind: "text" },
+      { key: "contact_heading_highlight", label: "Heading (highlighted line)", kind: "text" },
+      { key: "contact_intro", label: "Intro paragraph", kind: "textarea", rows: 3 },
+      { key: "contact_label", label: "Panel eyebrow", kind: "text" },
+      { key: "contact_area", label: "Area", kind: "text" },
+      { key: "contact_region", label: "Region", kind: "text" },
+      {
+        key: "contact_phones", label: "Phone numbers", kind: "rows", itemLabel: "number",
+        columns: [{ key: "label", label: "Label" }, { key: "value", label: "Number" }],
+      },
+      { key: "contact_hours", label: "Office hours", kind: "text" },
+      { key: "contact_registration_line", label: "Registration line", kind: "text" },
+      { key: "display_contact_form", label: "Show enquiry form", kind: "switch" },
+      { key: "contact_form_title", label: "Form title", kind: "text" },
+      { key: "contact_form_button", label: "Form button", kind: "text" },
+    ],
+  },
+  {
+    id: "footer",
+    title: "Footer",
+    blurb: "Every column, the social icons and the copyright line.",
+    fields: [
+      { key: "footer_established", label: "Established line", kind: "text" },
+      { key: "footer_description", label: "Description", kind: "textarea", rows: 3 },
+      { key: "footer_registration_lines", label: "Registration lines", kind: "strings", itemLabel: "line" },
+      { key: "footer_school_links_title", label: "School column — heading", kind: "text" },
+      { key: "footer_school_links", label: "School column — links", kind: "rows", itemLabel: "link", columns: LINK_COLUMNS },
+      { key: "footer_portals_title", label: "Portals column — heading", kind: "text" },
+      { key: "footer_portal_links", label: "Portals column — links", kind: "rows", itemLabel: "link", columns: LINK_COLUMNS },
+      { key: "footer_contact_title", label: "Contact column — heading", kind: "text" },
+      {
+        key: "social_media_links", label: "Social icons", kind: "rows", itemLabel: "profile",
+        help: "Platform accepts: facebook, twitter, instagram, youtube, linkedin, whatsapp, telegram.",
+        columns: [
+          { key: "platform", label: "Platform", placeholder: "facebook" },
+          { key: "url", label: "Profile URL", kind: "url" },
+        ],
+      },
+      { key: "footer_copyright", label: "Copyright line", kind: "text" },
+      { key: "footer_tagline", label: "Tagline", kind: "text" },
+    ],
+  },
+  {
+    id: "floating",
+    title: "Floating WhatsApp button",
+    blurb: "The round button that follows the visitor down the page.",
+    fields: [
+      { key: "whatsapp_enabled", label: "Show WhatsApp button", kind: "switch" },
+      { key: "whatsapp_number", label: "WhatsApp number", kind: "text", placeholder: "+255 774 221 707" },
+    ],
+  },
+]
+
+const ALL_KEYS = SECTIONS.flatMap(s => s.fields.map(f => f.key))
+
+/** Deep-equal enough for form values: strings, numbers, booleans, JSON blobs. */
+function sameValue(a: any, b: any) {
+  if (a instanceof File || b instanceof File) return false
+  if (typeof a === "object" && a !== null) return JSON.stringify(a) === JSON.stringify(b)
+  if (a === null || a === undefined) return b === null || b === undefined || b === ""
+  return a === b
 }
 
-function Section({ title, description, children }: SectionProps) {
-  return (
-    <div className="rounded-lg border border-border bg-card p-6 space-y-4">
-      <div>
-        <h3 className="text-lg font-semibold">{title}</h3>
-        {description && <p className="text-sm text-muted-foreground mt-1">{description}</p>}
-      </div>
-      <div className="space-y-4">{children}</div>
-    </div>
-  )
-}
-
-interface HomepageContent {
-  [key: string]: any
+function toSnakeKeys(payload: any): Record<string, any> {
+  const out: Record<string, any> = {}
+  Object.entries(payload || {}).forEach(([k, v]) => { out[toSnake(k)] = v })
+  return out
 }
 
 export default function HomepageEditorPage() {
   const { user, loading: authLoading } = useUser()
   const router = useRouter()
 
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [initial, setInitial] = useState<Record<string, any>>({})
+  const [form, setForm] = useState<Record<string, any>>({})
+  const [savedAt, setSavedAt] = useState<string | null>(null)
+  const [errors, setErrors] = useState<string[]>([])
+  const [loadError, setLoadError] = useState("")
+
   useEffect(() => {
     if (!authLoading && user && !["super_admin", "admin"].includes(user.role)) router.replace("/dashboard")
   }, [user, authLoading, router])
 
-  const [loading, setLoading] = useState(true)
-  const [saved, setSaved] = useState<string | null>(null)
-  const [formData, setFormData] = useState<HomepageContent>({})
-
   useEffect(() => {
     api.get("/api/homepage-content/")
-      .then((r) => {
-        setFormData(r.data || {})
+      .then(r => {
+        const snake = toSnakeKeys(r.data)
+        setInitial(snake)
+        setForm(snake)
+        setLoadError("")
       })
-      .catch(() => {})
+      .catch(() => setLoadError("Could not load the homepage content. Nothing can be edited until it loads."))
       .finally(() => setLoading(false))
   }, [])
 
-  const updateField = (field: string, value: any) => {
-    setFormData(prev => ({ ...prev, [field]: value }))
-  }
+  const dirtyKeys = useMemo(
+    () => ALL_KEYS.filter(key => !sameValue(form[key], initial[key])),
+    [form, initial]
+  )
 
-  const updateNestedField = (parent: string, field: string, value: any) => {
-    setFormData(prev => ({
-      ...prev,
-      [parent]: {
-        ...prev[parent],
-        [field]: value
-      }
-    }))
-  }
+  const setField = (key: string, value: any) => setForm(prev => ({ ...prev, [key]: value }))
 
-  const save = () => {
+  const save = async () => {
     if (!user || !["super_admin", "admin"].includes(user.role)) return
+    if (!dirtyKeys.length) return
 
-    const submitData = new FormData()
-    Object.entries(formData).forEach(([key, value]) => {
-      if (value instanceof File) {
-        submitData.append(key, value)
-      } else if (typeof value === 'object' && value !== null) {
-        submitData.append(key, JSON.stringify(value))
+    const body = new FormData()
+    for (const key of dirtyKeys) {
+      if (READ_ONLY.has(key)) continue
+      const value = form[key]
+      if (value instanceof File) { body.append(key, value); continue }
+      if (value === null || value === undefined) continue
+      // Booleans and numbers must cross the wire as themselves. The previous
+      // editor sent String(value || "") for everything, which turned `false`
+      // and `0` into an empty string that the serializer rejects outright.
+      if (typeof value === "boolean") { body.append(key, value ? "true" : "false"); continue }
+      if (typeof value === "number") { body.append(key, String(value)); continue }
+      if (typeof value === "object") { body.append(key, JSON.stringify(value)); continue }
+      body.append(key, String(value))
+    }
+
+    setSaving(true); setErrors([]); setSavedAt(null)
+    try {
+      const res = await api.patch("/api/homepage-content/", body)
+      // Re-seed from the response rather than from local state, so what the form
+      // shows afterwards is what the homepage will actually serve.
+      const snake = toSnakeKeys(res.data)
+      setInitial(snake)
+      setForm(snake)
+      setSavedAt(new Date().toLocaleTimeString())
+    } catch (err: any) {
+      const data = err?.response?.data
+      if (err?.response?.status === 403) {
+        setErrors(["You are not allowed to edit the homepage."])
+      } else if (data && typeof data === "object") {
+        setErrors(Object.entries(data).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(" ") : v}`))
       } else {
-        submitData.append(key, String(value || ''))
+        setErrors(["Could not save. Nothing was changed."])
       }
-    })
-
-    api.patch("/api/homepage-content/", submitData).then(() => {
-      setSaved("ok")
-      setTimeout(() => setSaved(null), 2500)
-    }).catch((err) => {
-      console.error('Save error:', err)
-    })
+    } finally {
+      setSaving(false)
+    }
   }
 
-  if (authLoading || loading) return null
+  if (authLoading || !user) return null
+  if (!["super_admin", "admin"].includes(user.role)) return null
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
-      <DashboardHeader title="Homepage" description="Manage all homepage content sections and settings." />
+      <DashboardHeader
+        title="Homepage"
+        description="Every block on the public homepage, in the order it appears there."
+      />
 
-      <div className="space-y-6">
-        {/* Section 1: Hero/Banner */}
-        <Section title="Hero Section" description="Main banner at the top of the homepage">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label>Hero Title</Label>
-              <Input value={formData.heroTitle || ""} onChange={(e) => updateField("heroTitle", e.target.value)} />
-            </div>
-            <div>
-              <Label>Hero Subtitle</Label>
-              <Input value={formData.heroSubtitle || ""} onChange={(e) => updateField("heroSubtitle", e.target.value)} />
-            </div>
-            <div className="md:col-span-2">
-              <Label>Hero Description</Label>
-              <Textarea rows={3} value={formData.heroDescription || ""} onChange={(e) => updateField("heroDescription", e.target.value)} />
-            </div>
-            <div>
-              <Label>Primary CTA Text</Label>
-              <Input value={formData.heroPrimaryCta || ""} onChange={(e) => updateField("heroPrimaryCta", e.target.value)} />
-            </div>
-            <div>
-              <Label>Primary CTA Link</Label>
-              <Input value={formData.heroPrimaryClaLink || ""} onChange={(e) => updateField("heroPrimaryCtaLink", e.target.value)} placeholder="https://..." />
-            </div>
-            <div>
-              <Label>Secondary CTA Text</Label>
-              <Input value={formData.heroSecondaryCta || ""} onChange={(e) => updateField("heroSecondaryCta", e.target.value)} />
-            </div>
-            <div>
-              <Label>Secondary CTA Link</Label>
-              <Input value={formData.heroSecondaryCtaLink || ""} onChange={(e) => updateField("heroSecondaryCtaLink", e.target.value)} placeholder="https://..." />
-            </div>
-            <div>
-              <Label>Hero Video URL</Label>
-              <Input value={formData.heroVideoUrl || ""} onChange={(e) => updateField("heroVideoUrl", e.target.value)} placeholder="https://www.youtube.com/embed/..." />
-            </div>
-            <div>
-              <Label>Background Color</Label>
-              <Input type="color" value={formData.heroBackgroundColor || "#ffffff"} onChange={(e) => updateField("heroBackgroundColor", e.target.value)} />
-            </div>
-            <div>
-              <Label>Hero Image URL</Label>
-              <Input value={formData.heroImage || ""} onChange={(e) => updateField("heroImage", e.target.value)} placeholder="https://..." />
-            </div>
-            <div>
-              <Label>Hero Image Upload</Label>
-              <input type="file" accept="image/*" onChange={(e) => updateField("heroImageUpload", e.target.files?.[0] || null)} className="block w-full text-sm text-muted-foreground" />
-            </div>
-            <div>
-              <Label>Hero Video Upload</Label>
-              <input type="file" accept="video/*" onChange={(e) => updateField("heroVideoUpload", e.target.files?.[0] || null)} className="block w-full text-sm text-muted-foreground" />
-            </div>
-            <div className="md:col-span-2">
-              <Label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.announcementBannerEnabled || false} onChange={(e) => updateField("announcementBannerEnabled", e.target.checked)} />
-                Enable Announcement Banner
-              </Label>
-            </div>
-            {formData.announcementBannerEnabled && (
-              <div className="md:col-span-2">
-                <Label>Announcement Banner Text</Label>
-                <Input value={formData.announcementBannerText || ""} onChange={(e) => updateField("announcementBannerText", e.target.value)} />
-              </div>
+      {/* Sticky action bar, so Save follows you down a very long form. */}
+      <div className="sticky top-0 z-30 -mx-4 border-b bg-background/95 px-4 py-3 backdrop-blur md:-mx-6 md:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            {dirtyKeys.length > 0 ? (
+              <Badge variant="outline" className="border-yellow-400/30 bg-yellow-500/10 text-yellow-700">
+                {dirtyKeys.length} unsaved change{dirtyKeys.length === 1 ? "" : "s"}
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-muted-foreground">No unsaved changes</Badge>
             )}
+            {savedAt && <span className="text-xs text-accent">Applied to the homepage at {savedAt}</span>}
           </div>
-        </Section>
-
-        {/* Section 2: Statistics */}
-        <Section title="Statistics Section" description="Key school statistics">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.showStatisticsSection || false} onChange={(e) => updateField("showStatisticsSection", e.target.checked)} />
-                Show Statistics Section
-              </Label>
-            </div>
-            <div>
-              <Label>Total Students</Label>
-              <Input type="number" value={formData.totalStudents || 0} onChange={(e) => updateField("totalStudents", parseInt(e.target.value) || 0)} />
-            </div>
-            <div>
-              <Label>Total Teachers</Label>
-              <Input type="number" value={formData.totalTeachers || 0} onChange={(e) => updateField("totalTeachers", parseInt(e.target.value) || 0)} />
-            </div>
-            <div>
-              <Label>Established Year</Label>
-              <Input type="number" value={formData.establishedYear || 2020} onChange={(e) => updateField("establishedYear", parseInt(e.target.value) || 2020)} />
-            </div>
-            <div>
-              <Label>Academic Programs Count</Label>
-              <Input type="number" value={formData.academicProgramsCount || 3} onChange={(e) => updateField("academicProgramsCount", parseInt(e.target.value) || 3)} />
-            </div>
-            <div>
-              <Label>Custom Label 1</Label>
-              <Input value={formData.statisticsCustomLabel1 || ""} onChange={(e) => updateField("statisticsCustomLabel1", e.target.value)} />
-            </div>
-            <div>
-              <Label>Custom Value 1</Label>
-              <Input value={formData.statisticsCustomValue1 || ""} onChange={(e) => updateField("statisticsCustomValue1", e.target.value)} />
-            </div>
-            <div>
-              <Label>Custom Label 2</Label>
-              <Input value={formData.statisticsCustomLabel2 || ""} onChange={(e) => updateField("statisticsCustomLabel2", e.target.value)} />
-            </div>
-            <div>
-              <Label>Custom Value 2</Label>
-              <Input value={formData.statisticsCustomValue2 || ""} onChange={(e) => updateField("statisticsCustomValue2", e.target.value)} />
-            </div>
+          <div className="flex items-center gap-2">
+            <a href="/" target="_blank" rel="noopener noreferrer">
+              <Button variant="outline" size="sm" className="gap-1.5">
+                <ExternalLink className="h-4 w-4" />View homepage
+              </Button>
+            </a>
+            <Button
+              variant="outline" size="sm" className="gap-1.5"
+              disabled={!dirtyKeys.length || saving}
+              onClick={() => setForm(initial)}
+            >
+              <RotateCcw className="h-4 w-4" />Discard
+            </Button>
+            <Button size="sm" className="gap-1.5" disabled={!dirtyKeys.length || saving} onClick={save}>
+              <Save className="h-4 w-4" />{saving ? "Saving…" : "Save Changes"}
+            </Button>
           </div>
-        </Section>
-
-        {/* Section 3: About */}
-        <Section title="About School" description="School information and highlights">
-          <div className="grid grid-cols-1 gap-4">
-            <div>
-              <Label>About Title</Label>
-              <Input value={formData.aboutTitle || ""} onChange={(e) => updateField("aboutTitle", e.target.value)} />
-            </div>
-            <div>
-              <Label>About Description</Label>
-              <Textarea rows={4} value={formData.aboutDescription || ""} onChange={(e) => updateField("aboutDescription", e.target.value)} />
-            </div>
-            <div>
-              <Label>About Highlights (JSON array)</Label>
-              <Textarea rows={3} value={typeof formData.aboutHighlights === 'string' ? formData.aboutHighlights : JSON.stringify(formData.aboutHighlights || [])} onChange={(e) => {
-                try {
-                  updateField("aboutHighlights", JSON.parse(e.target.value))
-                } catch {
-                  updateField("aboutHighlights", e.target.value)
-                }
-              }} placeholder='["Highlight 1", "Highlight 2"]' />
-            </div>
-            <div>
-              <Label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.whyChooseUsSectionEnabled || false} onChange={(e) => updateField("whyChooseUsSectionEnabled", e.target.checked)} />
-                Enable "Why Choose Us" Section
-              </Label>
-            </div>
-            {formData.whyChooseUsSectionEnabled && (
-              <div>
-                <Label>Why Choose Us Points (JSON)</Label>
-                <Textarea rows={3} value={typeof formData.whyChooseUsPoints === 'string' ? formData.whyChooseUsPoints : JSON.stringify(formData.whyChooseUsPoints || [])} onChange={(e) => {
-                  try {
-                    updateField("whyChooseUsPoints", JSON.parse(e.target.value))
-                  } catch {
-                    updateField("whyChooseUsPoints", e.target.value)
-                  }
-                }} placeholder='[{"title": "", "description": ""}]' />
-              </div>
-            )}
-            <div>
-              <Label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.schoolStorySectionEnabled || false} onChange={(e) => updateField("schoolStorySectionEnabled", e.target.checked)} />
-                Enable School Story Section
-              </Label>
-            </div>
-            {formData.schoolStorySectionEnabled && (
-              <>
-                <div>
-                  <Label>School Story Title</Label>
-                  <Input value={formData.schoolStoryTitle || ""} onChange={(e) => updateField("schoolStoryTitle", e.target.value)} />
-                </div>
-                <div>
-                  <Label>School Story Description</Label>
-                  <Textarea rows={3} value={formData.schoolStoryDescription || ""} onChange={(e) => updateField("schoolStoryDescription", e.target.value)} />
-                </div>
-                <div>
-                  <Label>School Story Image</Label>
-                  <input type="file" accept="image/*" onChange={(e) => updateField("schoolStoryImage", e.target.files?.[0] || null)} className="block w-full text-sm text-muted-foreground" />
-                </div>
-              </>
-            )}
-          </div>
-        </Section>
-
-        {/* Section 4: Academics */}
-        <Section title="Academics & Programs" description="Academic sections and programs">
-          <div className="grid grid-cols-1 gap-4">
-            <div>
-              <Label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.academicsSectionEnabled || false} onChange={(e) => updateField("academicsSectionEnabled", e.target.checked)} />
-                Enable Academics Section
-              </Label>
-            </div>
-            {formData.academicsSectionEnabled && (
-              <>
-                <div>
-                  <Label>Academics Section Title</Label>
-                  <Input value={formData.academicsSectionTitle || ""} onChange={(e) => updateField("academicsSectionTitle", e.target.value)} />
-                </div>
-                <div>
-                  <Label>Academics Section Subtitle</Label>
-                  <Input value={formData.academicsSectionSubtitle || ""} onChange={(e) => updateField("academicsSectionSubtitle", e.target.value)} />
-                </div>
-                <div>
-                  <Label>Featured Subjects (JSON array)</Label>
-                  <Textarea rows={2} value={typeof formData.featuredSubjects === 'string' ? formData.featuredSubjects : JSON.stringify(formData.featuredSubjects || [])} onChange={(e) => {
-                    try {
-                      updateField("featuredSubjects", JSON.parse(e.target.value))
-                    } catch {
-                      updateField("featuredSubjects", e.target.value)
-                    }
-                  }} placeholder='["Math", "Science", "English"]' />
-                </div>
-                <div>
-                  <Label>Programs Overview</Label>
-                  <Textarea rows={3} value={formData.programsOverview || ""} onChange={(e) => updateField("programsOverview", e.target.value)} />
-                </div>
-                <div>
-                  <Label>Grade Levels Offered (JSON array)</Label>
-                  <Textarea rows={2} value={typeof formData.gradeLevelsOffered === 'string' ? formData.gradeLevelsOffered : JSON.stringify(formData.gradeLevelsOffered || [])} onChange={(e) => {
-                    try {
-                      updateField("gradeLevelsOffered", JSON.parse(e.target.value))
-                    } catch {
-                      updateField("gradeLevelsOffered", e.target.value)
-                    }
-                  }} placeholder='["Nursery", "Primary", "Secondary"]' />
-                </div>
-              </>
-            )}
-          </div>
-        </Section>
-
-        {/* Section 5: Admissions */}
-        <Section title="Admissions" description="Application and admission information">
-          <div className="grid grid-cols-1 gap-4">
-            <div>
-              <Label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.admissionsSectionEnabled || false} onChange={(e) => updateField("admissionsSectionEnabled", e.target.checked)} />
-                Enable Admissions Section
-              </Label>
-            </div>
-            {formData.admissionsSectionEnabled && (
-              <>
-                <div>
-                  <Label>Admissions Title</Label>
-                  <Input value={formData.admissionsSectionTitle || ""} onChange={(e) => updateField("admissionsSectionTitle", e.target.value)} />
-                </div>
-                <div>
-                  <Label>Admissions Subtitle</Label>
-                  <Input value={formData.admissionsSectionSubtitle || ""} onChange={(e) => updateField("admissionsSectionSubtitle", e.target.value)} />
-                </div>
-                <div>
-                  <Label>Current Application Window Info</Label>
-                  <Textarea rows={2} value={formData.currentApplicationWindowInfo || ""} onChange={(e) => updateField("currentApplicationWindowInfo", e.target.value)} />
-                </div>
-                <div>
-                  <Label>Admission Requirements (JSON array)</Label>
-                  <Textarea rows={2} value={typeof formData.admissionRequirements === 'string' ? formData.admissionRequirements : JSON.stringify(formData.admissionRequirements || [])} onChange={(e) => {
-                    try {
-                      updateField("admissionRequirements", JSON.parse(e.target.value))
-                    } catch {
-                      updateField("admissionRequirements", e.target.value)
-                    }
-                  }} placeholder='["Birth certificate", "Passport", "Academic records"]' />
-                </div>
-                <div>
-                  <Label>Application Button Text</Label>
-                  <Input value={formData.applicationButtonText || "Apply Now"} onChange={(e) => updateField("applicationButtonText", e.target.value)} />
-                </div>
-                <div>
-                  <Label>Application Button Link</Label>
-                  <Input value={formData.applicationButtonLink || ""} onChange={(e) => updateField("applicationButtonLink", e.target.value)} placeholder="https://..." />
-                </div>
-                <div>
-                  <Label>Admission Timeline (JSON)</Label>
-                  <Textarea rows={2} value={typeof formData.admissionTimeline === 'string' ? formData.admissionTimeline : JSON.stringify(formData.admissionTimeline || {})} onChange={(e) => {
-                    try {
-                      updateField("admissionTimeline", JSON.parse(e.target.value))
-                    } catch {
-                      updateField("admissionTimeline", e.target.value)
-                    }
-                  }} placeholder='{"January": "Applications open", "March": "Interviews"}' />
-                </div>
-              </>
-            )}
-          </div>
-        </Section>
-
-        {/* Section 6: Leadership */}
-        <Section title="Leadership & Team" description="Leadership and staff information">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.leadershipSectionEnabled || false} onChange={(e) => updateField("leadershipSectionEnabled", e.target.checked)} />
-                Enable Leadership Section
-              </Label>
-            </div>
-            <div>
-              <Label>Leadership Section Title</Label>
-              <Input value={formData.leadershipSectionTitle || "Our Leadership"} onChange={(e) => updateField("leadershipSectionTitle", e.target.value)} />
-            </div>
-            <div>
-              <Label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.principalMessageEnabled || false} onChange={(e) => updateField("principalMessageEnabled", e.target.checked)} />
-                Enable Principal's Message
-              </Label>
-            </div>
-            <div>
-              <Label>Featured Staff Count</Label>
-              <Input type="number" value={formData.featuredStaffCount || 5} onChange={(e) => updateField("featuredStaffCount", parseInt(e.target.value) || 5)} />
-            </div>
-            <div className="md:col-span-2">
-              <Label>Staff Directory Link</Label>
-              <Input value={formData.staffDirectoryLink || ""} onChange={(e) => updateField("staffDirectoryLink", e.target.value)} placeholder="https://..." />
-            </div>
-          </div>
-        </Section>
-
-        {/* Section 7: Testimonials */}
-        <Section title="Testimonials & Success Stories" description="Student and parent feedback">
-          <div className="grid grid-cols-1 gap-4">
-            <div>
-              <Label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.testimonialsSectionEnabled || false} onChange={(e) => updateField("testimonialsSectionEnabled", e.target.checked)} />
-                Enable Testimonials Section
-              </Label>
-            </div>
-            {formData.testimonialsSectionEnabled && (
-              <>
-                <div>
-                  <Label>Testimonials Title</Label>
-                  <Input value={formData.testimonialsSectionTitle || "What Our Community Says"} onChange={(e) => updateField("testimonialsSectionTitle", e.target.value)} />
-                </div>
-                <div>
-                  <Label>Testimonials Subtitle</Label>
-                  <Input value={formData.testimonialsSectionSubtitle || ""} onChange={(e) => updateField("testimonialsSectionSubtitle", e.target.value)} />
-                </div>
-                <div>
-                  <Label>Testimonials (JSON)</Label>
-                  <Textarea rows={3} value={typeof formData.testimonialsList === 'string' ? formData.testimonialsList : JSON.stringify(formData.testimonialsList || [])} onChange={(e) => {
-                    try {
-                      updateField("testimonialsList", JSON.parse(e.target.value))
-                    } catch {
-                      updateField("testimonialsList", e.target.value)
-                    }
-                  }} placeholder='[{"text": "", "author": "", "role": ""}]' />
-                </div>
-              </>
-            )}
-            <div>
-              <Label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.successStoriesEnabled || false} onChange={(e) => updateField("successStoriesEnabled", e.target.checked)} />
-                Enable Success Stories
-              </Label>
-            </div>
-            {formData.successStoriesEnabled && (
-              <div>
-                <Label>Success Stories (JSON)</Label>
-                <Textarea rows={3} value={typeof formData.successStories === 'string' ? formData.successStories : JSON.stringify(formData.successStories || [])} onChange={(e) => {
-                  try {
-                    updateField("successStories", JSON.parse(e.target.value))
-                  } catch {
-                    updateField("successStories", e.target.value)
-                  }
-                }} placeholder='[{"title": "", "description": ""}]' />
-              </div>
-            )}
-          </div>
-        </Section>
-
-        {/* Section 8: News */}
-        <Section title="News & Updates" description="News articles and announcements">
-          <div className="grid grid-cols-1 gap-4">
-            <div>
-              <Label>News Section Title</Label>
-              <Input value={formData.newsSectionTitle || "News & Updates"} onChange={(e) => updateField("newsSectionTitle", e.target.value)} />
-            </div>
-            <div>
-              <Label>News Section Subtitle</Label>
-              <Input value={formData.newsSectionSubtitle || ""} onChange={(e) => updateField("newsSectionSubtitle", e.target.value)} />
-            </div>
-            <div>
-              <Label>Max News Items to Display</Label>
-              <Input type="number" value={formData.newsMaxDisplay || 3} onChange={(e) => updateField("newsMaxDisplay", parseInt(e.target.value) || 3)} />
-            </div>
-            <div>
-              <Label>News Categories (JSON array)</Label>
-              <Textarea rows={2} value={typeof formData.newsCategories === 'string' ? formData.newsCategories : JSON.stringify(formData.newsCategories || [])} onChange={(e) => {
-                try {
-                  updateField("newsCategories", JSON.parse(e.target.value))
-                } catch {
-                  updateField("newsCategories", e.target.value)
-                }
-              }} placeholder='["Announcements", "Achievements", "Events"]' />
-            </div>
-          </div>
-        </Section>
-
-        {/* Section 9: Facilities */}
-        <Section title="Facilities & Campus" description="School facilities and campus gallery">
-          <div className="grid grid-cols-1 gap-4">
-            <div>
-              <Label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.facilitiesSectionEnabled || false} onChange={(e) => updateField("facilitiesSectionEnabled", e.target.checked)} />
-                Enable Facilities Section
-              </Label>
-            </div>
-            {formData.facilitiesSectionEnabled && (
-              <>
-                <div>
-                  <Label>Facilities Section Title</Label>
-                  <Input value={formData.facilitiesSectionTitle || "Our Facilities"} onChange={(e) => updateField("facilitiesSectionTitle", e.target.value)} />
-                </div>
-                <div>
-                  <Label>Facilities List (JSON)</Label>
-                  <Textarea rows={3} value={typeof formData.facilitiesList === 'string' ? formData.facilitiesList : JSON.stringify(formData.facilitiesList || [])} onChange={(e) => {
-                    try {
-                      updateField("facilitiesList", JSON.parse(e.target.value))
-                    } catch {
-                      updateField("facilitiesList", e.target.value)
-                    }
-                  }} placeholder='[{"name": "", "description": ""}]' />
-                </div>
-              </>
-            )}
-            <div>
-              <Label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.campusGalleryEnabled || false} onChange={(e) => updateField("campusGalleryEnabled", e.target.checked)} />
-                Enable Campus Gallery
-              </Label>
-            </div>
-            {formData.campusGalleryEnabled && (
-              <div>
-                <Label>Campus Gallery Photos (JSON URLs)</Label>
-                <Textarea rows={2} value={typeof formData.campusGalleryPhotos === 'string' ? formData.campusGalleryPhotos : JSON.stringify(formData.campusGalleryPhotos || [])} onChange={(e) => {
-                  try {
-                    updateField("campusGalleryPhotos", JSON.parse(e.target.value))
-                  } catch {
-                    updateField("campusGalleryPhotos", e.target.value)
-                  }
-                }} placeholder='["https://...", "https://..."]' />
-              </div>
-            )}
-          </div>
-        </Section>
-
-        {/* Section 10: Fundraising */}
-        <Section title="Fundraising & Donations" description="Fundraiser and donation information">
-          <div className="grid grid-cols-1 gap-4">
-            <div>
-              <Label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.fundraisingSectionEnabled || false} onChange={(e) => updateField("fundraisingSectionEnabled", e.target.checked)} />
-                Enable Fundraising Section
-              </Label>
-            </div>
-            {formData.fundraisingSectionEnabled && (
-              <>
-                <div>
-                  <Label>Fundraising Section Title</Label>
-                  <Input value={formData.fundraisingSectionTitle || "Support Our Mission"} onChange={(e) => updateField("fundraisingSectionTitle", e.target.value)} />
-                </div>
-                <div>
-                  <Label>Featured Fundraisers Count</Label>
-                  <Input type="number" value={formData.featuredFundraisersCount || 3} onChange={(e) => updateField("featuredFundraisersCount", parseInt(e.target.value) || 3)} />
-                </div>
-                <div>
-                  <Label>Donation CTA Text</Label>
-                  <Input value={formData.donationCallToActionText || ""} onChange={(e) => updateField("donationCallToActionText", e.target.value)} />
-                </div>
-                <div>
-                  <Label>Donation CTA Link</Label>
-                  <Input value={formData.donationCallToActionLink || ""} onChange={(e) => updateField("donationCallToActionLink", e.target.value)} placeholder="https://..." />
-                </div>
-              </>
-            )}
-          </div>
-        </Section>
-
-        {/* Section 11: Accreditations */}
-        <Section title="Accreditations" description="Certifications and accreditations">
-          <div className="grid grid-cols-1 gap-4">
-            <div>
-              <Label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.accreditationsSectionEnabled || false} onChange={(e) => updateField("accreditationsSectionEnabled", e.target.checked)} />
-                Enable Accreditations Section
-              </Label>
-            </div>
-            {formData.accreditationsSectionEnabled && (
-              <>
-                <div>
-                  <Label>Accreditations Title</Label>
-                  <Input value={formData.accreditationsSectionTitle || "Accreditations"} onChange={(e) => updateField("accreditationsSectionTitle", e.target.value)} />
-                </div>
-                <div>
-                  <Label>Accreditations List (JSON)</Label>
-                  <Textarea rows={2} value={typeof formData.accreditationsList === 'string' ? formData.accreditationsList : JSON.stringify(formData.accreditationsList || [])} onChange={(e) => {
-                    try {
-                      updateField("accreditationsList", JSON.parse(e.target.value))
-                    } catch {
-                      updateField("accreditationsList", e.target.value)
-                    }
-                  }} placeholder='[{"name": "", "logoUrl": ""}]' />
-                </div>
-              </>
-            )}
-          </div>
-        </Section>
-
-        {/* Section 12: Contact & Footer */}
-        <Section title="Contact & Footer" description="Contact information and footer links">
-          <div className="grid grid-cols-1 gap-4">
-            <div>
-              <Label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.contactSectionEnabled || false} onChange={(e) => updateField("contactSectionEnabled", e.target.checked)} />
-                Enable Contact Section
-              </Label>
-            </div>
-            {formData.contactSectionEnabled && (
-              <>
-                <div>
-                  <Label>Footer Title</Label>
-                  <Input value={formData.footerTitle || "Get In Touch"} onChange={(e) => updateField("footerTitle", e.target.value)} />
-                </div>
-                <div>
-                  <Label>Footer Description</Label>
-                  <Textarea rows={2} value={formData.footerDescription || ""} onChange={(e) => updateField("footerDescription", e.target.value)} />
-                </div>
-                <div>
-                  <Label className="flex items-center gap-2">
-                    <input type="checkbox" checked={formData.displayContactForm || false} onChange={(e) => updateField("displayContactForm", e.target.checked)} />
-                    Display Contact Form
-                  </Label>
-                </div>
-                <div>
-                  <Label>Map Location Embed URL</Label>
-                  <Input value={formData.mapLocationEmbedUrl || ""} onChange={(e) => updateField("mapLocationEmbedUrl", e.target.value)} placeholder="https://maps.google.com/..." />
-                </div>
-                <div>
-                  <Label>Office Hours (JSON)</Label>
-                  <Textarea rows={2} value={typeof formData.officeHours === 'string' ? formData.officeHours : JSON.stringify(formData.officeHours || {})} onChange={(e) => {
-                    try {
-                      updateField("officeHours", JSON.parse(e.target.value))
-                    } catch {
-                      updateField("officeHours", e.target.value)
-                    }
-                  }} placeholder='{"Monday": "8am-4pm", "Tuesday": "8am-4pm"}' />
-                </div>
-                <div>
-                  <Label>Quick Links (JSON)</Label>
-                  <Textarea rows={2} value={typeof formData.quickLinks === 'string' ? formData.quickLinks : JSON.stringify(formData.quickLinks || [])} onChange={(e) => {
-                    try {
-                      updateField("quickLinks", JSON.parse(e.target.value))
-                    } catch {
-                      updateField("quickLinks", e.target.value)
-                    }
-                  }} placeholder='[{"title": "", "url": ""}]' />
-                </div>
-              </>
-            )}
-          </div>
-        </Section>
-
-        {/* Section 13: Social Media */}
-        <Section title="Social Media & Messaging" description="Social media links and messaging options">
-          <div className="grid grid-cols-1 gap-4">
-            <div>
-              <Label>Social Media Links (JSON)</Label>
-              <Textarea rows={2} value={typeof formData.socialMediaLinks === 'string' ? formData.socialMediaLinks : JSON.stringify(formData.socialMediaLinks || {})} onChange={(e) => {
-                try {
-                  updateField("socialMediaLinks", JSON.parse(e.target.value))
-                } catch {
-                  updateField("socialMediaLinks", e.target.value)
-                }
-              }} placeholder='{"facebook": "https://...", "twitter": "https://..."}' />
-            </div>
-            <div>
-              <Label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.shareEnabled || false} onChange={(e) => updateField("shareEnabled", e.target.checked)} />
-                Enable Social Sharing Buttons
-              </Label>
-            </div>
-            <div>
-              <Label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.whatsappEnabled || false} onChange={(e) => updateField("whatsappEnabled", e.target.checked)} />
-                Enable WhatsApp Chat
-              </Label>
-            </div>
-            {formData.whatsappEnabled && (
-              <div>
-                <Label>WhatsApp Number</Label>
-                <Input value={formData.whatsappNumber || ""} onChange={(e) => updateField("whatsappNumber", e.target.value)} placeholder="+1234567890" />
-              </div>
-            )}
-          </div>
-        </Section>
-
-        {/* Section 14: SEO */}
-        <Section title="SEO & Metadata" description="Search engine optimization">
-          <div className="grid grid-cols-1 gap-4">
-            <div>
-              <Label>Meta Title</Label>
-              <Input value={formData.metaTitle || ""} onChange={(e) => updateField("metaTitle", e.target.value)} placeholder="Max 60 characters" maxLength={60} />
-            </div>
-            <div>
-              <Label>Meta Description</Label>
-              <Input value={formData.metaDescription || ""} onChange={(e) => updateField("metaDescription", e.target.value)} placeholder="Max 160 characters" maxLength={160} />
-            </div>
-            <div>
-              <Label>Meta Keywords</Label>
-              <Input value={formData.metaKeywords || ""} onChange={(e) => updateField("metaKeywords", e.target.value)} placeholder="Comma separated keywords" />
-            </div>
-            <div>
-              <Label>OG Title</Label>
-              <Input value={formData.ogTitle || ""} onChange={(e) => updateField("ogTitle", e.target.value)} />
-            </div>
-            <div>
-              <Label>OG Description</Label>
-              <Input value={formData.ogDescription || ""} onChange={(e) => updateField("ogDescription", e.target.value)} />
-            </div>
-            <div>
-              <Label>OG Image (1200x630px)</Label>
-              <input type="file" accept="image/*" onChange={(e) => updateField("ogImage", e.target.files?.[0] || null)} className="block w-full text-sm text-muted-foreground" />
-            </div>
-            <div>
-              <Label>Canonical URL</Label>
-              <Input value={formData.canonicalUrl || ""} onChange={(e) => updateField("canonicalUrl", e.target.value)} placeholder="https://..." />
-            </div>
-          </div>
-        </Section>
-
-        {/* Section 15: CTAs */}
-        <Section title="Call-to-Action Sections" description="Secondary and tertiary CTA sections">
-          <div className="grid grid-cols-1 gap-4">
-            <div>
-              <Label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.secondaryCtaSectionEnabled || false} onChange={(e) => updateField("secondaryCtaSectionEnabled", e.target.checked)} />
-                Enable Secondary CTA Section
-              </Label>
-            </div>
-            {formData.secondaryCtaSectionEnabled && (
-              <>
-                <div>
-                  <Label>Secondary CTA Title</Label>
-                  <Input value={formData.secondaryCtaTitle || ""} onChange={(e) => updateField("secondaryCtaTitle", e.target.value)} />
-                </div>
-                <div>
-                  <Label>Secondary CTA Description</Label>
-                  <Textarea rows={2} value={formData.secondaryCtaDescription || ""} onChange={(e) => updateField("secondaryCtaDescription", e.target.value)} />
-                </div>
-                <div>
-                  <Label>Secondary CTA Button Text</Label>
-                  <Input value={formData.secondaryCtaButtonText || ""} onChange={(e) => updateField("secondaryCtaButtonText", e.target.value)} />
-                </div>
-                <div>
-                  <Label>Secondary CTA Button Link</Label>
-                  <Input value={formData.secondaryCtaButtonLink || ""} onChange={(e) => updateField("secondaryCtaButtonLink", e.target.value)} placeholder="https://..." />
-                </div>
-                <div>
-                  <Label>Secondary CTA Image</Label>
-                  <input type="file" accept="image/*" onChange={(e) => updateField("secondaryCtaImage", e.target.files?.[0] || null)} className="block w-full text-sm text-muted-foreground" />
-                </div>
-              </>
-            )}
-            <div>
-              <Label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.tertiaryCataEnabled || false} onChange={(e) => updateField("tertiaryCataEnabled", e.target.checked)} />
-                Enable Tertiary CTA Section
-              </Label>
-            </div>
-            {formData.tertiaryCataEnabled && (
-              <>
-                <div>
-                  <Label>Tertiary CTA Title</Label>
-                  <Input value={formData.tertiaryCtaTitle || ""} onChange={(e) => updateField("tertiaryCtaTitle", e.target.value)} />
-                </div>
-                <div>
-                  <Label>Tertiary CTA Description</Label>
-                  <Textarea rows={2} value={formData.tertiaryCtaDescription || ""} onChange={(e) => updateField("tertiaryCtaDescription", e.target.value)} />
-                </div>
-                <div>
-                  <Label>Tertiary CTA Button Text</Label>
-                  <Input value={formData.tertiaryCtaButtonText || ""} onChange={(e) => updateField("tertiaryCtaButtonText", e.target.value)} />
-                </div>
-                <div>
-                  <Label>Tertiary CTA Button Link</Label>
-                  <Input value={formData.tertiaryCtaButtonLink || ""} onChange={(e) => updateField("tertiaryCtaButtonLink", e.target.value)} placeholder="https://..." />
-                </div>
-              </>
-            )}
-          </div>
-        </Section>
-
-        {/* Section 16: Events */}
-        <Section title="Events & Calendar" description="Upcoming events section">
-          <div className="grid grid-cols-1 gap-4">
-            <div>
-              <Label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.eventsSectionEnabled || false} onChange={(e) => updateField("eventsSectionEnabled", e.target.checked)} />
-                Enable Events Section
-              </Label>
-            </div>
-            {formData.eventsSectionEnabled && (
-              <>
-                <div>
-                  <Label>Events Section Title</Label>
-                  <Input value={formData.eventsSectionTitle || "Upcoming Events"} onChange={(e) => updateField("eventsSectionTitle", e.target.value)} />
-                </div>
-                <div>
-                  <Label>Upcoming Events Count</Label>
-                  <Input type="number" value={formData.upcomingEventsCount || 3} onChange={(e) => updateField("upcomingEventsCount", parseInt(e.target.value) || 3)} />
-                </div>
-                <div>
-                  <Label>Link to Full Calendar</Label>
-                  <Input value={formData.linkToFullCalendar || ""} onChange={(e) => updateField("linkToFullCalendar", e.target.value)} placeholder="https://..." />
-                </div>
-              </>
-            )}
-          </div>
-        </Section>
-
-        {/* Section 17: Achievements */}
-        <Section title="Achievements & Performance" description="School achievements and performance metrics">
-          <div className="grid grid-cols-1 gap-4">
-            <div>
-              <Label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.achievementsSectionEnabled || false} onChange={(e) => updateField("achievementsSectionEnabled", e.target.checked)} />
-                Enable Achievements Section
-              </Label>
-            </div>
-            {formData.achievementsSectionEnabled && (
-              <>
-                <div>
-                  <Label>Achievements Section Title</Label>
-                  <Input value={formData.achievementsSectionTitle || "Our Achievements"} onChange={(e) => updateField("achievementsSectionTitle", e.target.value)} />
-                </div>
-                <div>
-                  <Label className="flex items-center gap-2">
-                    <input type="checkbox" checked={formData.examPerformanceEnabled || false} onChange={(e) => updateField("examPerformanceEnabled", e.target.checked)} />
-                    Show Exam Performance
-                  </Label>
-                </div>
-                <div>
-                  <Label className="flex items-center gap-2">
-                    <input type="checkbox" checked={formData.universityPlacementsEnabled || false} onChange={(e) => updateField("universityPlacementsEnabled", e.target.checked)} />
-                    Show University Placements
-                  </Label>
-                </div>
-                <div>
-                  <Label>Awards & Recognitions (JSON)</Label>
-                  <Textarea rows={2} value={typeof formData.awardsRecognitionsList === 'string' ? formData.awardsRecognitionsList : JSON.stringify(formData.awardsRecognitionsList || [])} onChange={(e) => {
-                    try {
-                      updateField("awardsRecognitionsList", JSON.parse(e.target.value))
-                    } catch {
-                      updateField("awardsRecognitionsList", e.target.value)
-                    }
-                  }} placeholder='[{"title": "", "year": 2024}]' />
-                </div>
-              </>
-            )}
-          </div>
-        </Section>
-
-        {/* Section 18: Admin Controls */}
-        <Section title="Admin Controls" description="Theme, maintenance mode, and advanced settings">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label>Homepage Theme</Label>
-              <select value={formData.homepageTheme || "light"} onChange={(e) => updateField("homepageTheme", e.target.value)} className="w-full rounded-md border border-input bg-background px-3 py-2">
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-                <option value="custom">Custom</option>
-              </select>
-            </div>
-            <div>
-              <Label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.maintenanceModeEnabled || false} onChange={(e) => updateField("maintenanceModeEnabled", e.target.checked)} />
-                Maintenance Mode
-              </Label>
-            </div>
-            {formData.maintenanceModeEnabled && (
-              <div className="md:col-span-2">
-                <Label>Maintenance Mode Message</Label>
-                <Textarea rows={2} value={formData.maintenanceModeMessage || ""} onChange={(e) => updateField("maintenanceModeMessage", e.target.value)} />
-              </div>
-            )}
-            <div>
-              <Label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.showBetaFeatures || false} onChange={(e) => updateField("showBetaFeatures", e.target.checked)} />
-                Show Beta Features
-              </Label>
-            </div>
-            <div className="md:col-span-2">
-              <Label>Custom CSS</Label>
-              <Textarea rows={4} value={formData.customCss || ""} onChange={(e) => updateField("customCss", e.target.value)} placeholder="/* Custom CSS rules */" />
-            </div>
-            <div className="md:col-span-2">
-              <Label>Sections Display Order (JSON)</Label>
-              <Textarea rows={2} value={typeof formData.sectionsDisplayOrder === 'string' ? formData.sectionsDisplayOrder : JSON.stringify(formData.sectionsDisplayOrder || [])} onChange={(e) => {
-                try {
-                  updateField("sectionsDisplayOrder", JSON.parse(e.target.value))
-                } catch {
-                  updateField("sectionsDisplayOrder", e.target.value)
-                }
-              }} placeholder='["hero", "statistics", "about", ...]' />
-            </div>
-          </div>
-        </Section>
-
-        {/* Save Button */}
-        <div className="flex items-center gap-4 p-4 md:p-6 rounded-lg border border-border bg-card sticky bottom-0">
-          <Button onClick={save} className="flex-1">Save All Changes</Button>
-          {saved === "ok" && <SavedBanner />}
         </div>
+        {errors.length > 0 && (
+          <div className="mt-2 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2">
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+            <div className="text-xs text-destructive">
+              {errors.map((e, i) => <p key={i}>{e}</p>)}
+            </div>
+          </div>
+        )}
       </div>
+
+      {loadError && <p className="text-sm text-destructive">{loadError}</p>}
+      {loading ? (
+        <p className="text-sm text-muted-foreground">Loading homepage content…</p>
+      ) : (
+        <Accordion type="multiple" defaultValue={["hero"]} className="space-y-3">
+          {SECTIONS.map(section => {
+            const touched = section.fields.filter(f => dirtyKeys.includes(f.key)).length
+            return (
+              <AccordionItem key={section.id} value={section.id} className="rounded-lg border bg-card px-4">
+                <AccordionTrigger className="hover:no-underline">
+                  <div className="flex flex-1 items-center justify-between gap-3 pr-3 text-left">
+                    <div>
+                      <p className="font-semibold">{section.title}</p>
+                      <p className="text-xs font-normal text-muted-foreground">{section.blurb}</p>
+                    </div>
+                    {touched > 0 && (
+                      <Badge variant="outline" className="shrink-0 border-yellow-400/30 bg-yellow-500/10 text-yellow-700">
+                        {touched} edited
+                      </Badge>
+                    )}
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="pb-5">
+                  <div className="grid grid-cols-1 gap-5">
+                    {section.fields.map(field => (
+                      <FieldEditor
+                        key={field.key}
+                        field={field}
+                        value={form[field.key]}
+                        dirty={dirtyKeys.includes(field.key)}
+                        onChange={v => setField(field.key, v)}
+                      />
+                    ))}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            )
+          })}
+        </Accordion>
+      )}
+    </div>
+  )
+}
+
+/* ── Field renderers ──────────────────────────────────────────────────────── */
+
+function FieldEditor({ field, value, dirty, onChange }: {
+  field: Field
+  value: any
+  dirty: boolean
+  onChange: (value: any) => void
+}) {
+  const label = (
+    <div className="flex items-center gap-2">
+      <Label className={dirty ? "text-yellow-700" : ""}>{field.label}</Label>
+      {dirty && <span className="h-1.5 w-1.5 rounded-full bg-yellow-500" />}
+    </div>
+  )
+  const help = field.help ? <p className="text-xs text-muted-foreground">{field.help}</p> : null
+
+  if (field.kind === "switch") {
+    return (
+      <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+        <div className="space-y-1">{label}{help}</div>
+        <Switch checked={value === true} onCheckedChange={onChange} />
+      </div>
+    )
+  }
+
+  if (field.kind === "file") {
+    return (
+      <div className="space-y-1.5">
+        {label}
+        <Input type="file" accept={field.accept}
+          onChange={e => onChange(e.target.files?.[0] ?? null)} />
+        {value instanceof File ? (
+          <p className="text-xs text-accent">{value.name} — uploaded when you click Save Changes.</p>
+        ) : typeof value === "string" && value ? (
+          <p className="break-all text-xs text-muted-foreground">Current: {value}</p>
+        ) : null}
+        {help}
+      </div>
+    )
+  }
+
+  if (field.kind === "textarea" || field.kind === "code") {
+    return (
+      <div className="space-y-1.5">
+        {label}
+        <Textarea
+          rows={field.rows ?? 3}
+          className={field.kind === "code" ? "font-mono text-xs" : ""}
+          value={value ?? ""}
+          onChange={e => onChange(e.target.value)}
+        />
+        {help}
+      </div>
+    )
+  }
+
+  if (field.kind === "number") {
+    return (
+      <div className="space-y-1.5">
+        {label}
+        <Input
+          type="number"
+          className="max-w-[160px]"
+          value={value ?? ""}
+          // An empty box is not zero — send nothing rather than guess at one.
+          onChange={e => onChange(e.target.value === "" ? null : Number(e.target.value))}
+        />
+        {help}
+      </div>
+    )
+  }
+
+  if (field.kind === "strings") {
+    return <StringListEditor field={field} value={value} label={label} help={help} onChange={onChange} />
+  }
+
+  if (field.kind === "rows") {
+    return <RowListEditor field={field} value={value} label={label} help={help} onChange={onChange} />
+  }
+
+  if (field.kind === "record") {
+    const record = value && typeof value === "object" && !Array.isArray(value) ? value : {}
+    return (
+      <div className="space-y-2">
+        {label}{help}
+        <Card><CardContent className="grid grid-cols-1 gap-3 pt-4 md:grid-cols-2">
+          {field.columns.map(col => (
+            <ColumnInput key={col.key} column={col} value={record[col.key]}
+              onChange={v => onChange({ ...record, [col.key]: v })} />
+          ))}
+        </CardContent></Card>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {label}
+      <Input
+        placeholder={field.placeholder}
+        value={value ?? ""}
+        onChange={e => onChange(e.target.value)}
+      />
+      {help}
+    </div>
+  )
+}
+
+function ColumnInput({ column, value, onChange }: {
+  column: Column
+  value: any
+  onChange: (value: string) => void
+}) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs text-muted-foreground">{column.label}</Label>
+      {column.kind === "textarea" ? (
+        <Textarea rows={2} value={value ?? ""} placeholder={column.placeholder}
+          onChange={e => onChange(e.target.value)} />
+      ) : (
+        <Input value={value ?? ""} placeholder={column.placeholder}
+          onChange={e => onChange(e.target.value)} />
+      )}
+    </div>
+  )
+}
+
+/** Shared add / remove / reorder controls for both list editors. */
+function ListControls({ index, count, onMove, onRemove }: {
+  index: number
+  count: number
+  onMove: (from: number, to: number) => void
+  onRemove: (index: number) => void
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-1">
+      <Button type="button" variant="ghost" size="icon" className="h-7 w-7"
+        disabled={index === 0} onClick={() => onMove(index, index - 1)} aria-label="Move up">
+        <ArrowUp className="h-3.5 w-3.5" />
+      </Button>
+      <Button type="button" variant="ghost" size="icon" className="h-7 w-7"
+        disabled={index === count - 1} onClick={() => onMove(index, index + 1)} aria-label="Move down">
+        <ArrowDown className="h-3.5 w-3.5" />
+      </Button>
+      <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-destructive"
+        onClick={() => onRemove(index)} aria-label="Remove">
+        <Trash2 className="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  )
+}
+
+function useListOps(items: any[], onChange: (next: any[]) => void) {
+  return {
+    move: (from: number, to: number) => {
+      const next = [...items]
+      const [row] = next.splice(from, 1)
+      next.splice(to, 0, row)
+      onChange(next)
+    },
+    remove: (index: number) => onChange(items.filter((_, i) => i !== index)),
+    update: (index: number, row: any) => onChange(items.map((r, i) => (i === index ? row : r))),
+  }
+}
+
+function EmptyListNote({ itemLabel }: { itemLabel: string }) {
+  return (
+    <p className="text-xs text-muted-foreground">
+      Empty — the homepage falls back to its built-in {itemLabel}s until you add one.
+    </p>
+  )
+}
+
+function StringListEditor({ field, value, label, help, onChange }: {
+  field: Extract<Field, { kind: "strings" }>
+  value: any
+  label: React.ReactNode
+  help: React.ReactNode
+  onChange: (value: string[]) => void
+}) {
+  const items: string[] = Array.isArray(value) ? value : []
+  const ops = useListOps(items, onChange as (next: any[]) => void)
+
+  return (
+    <div className="space-y-2">
+      {label}{help}
+      {items.length === 0 && <EmptyListNote itemLabel={field.itemLabel} />}
+      {items.map((item, i) => (
+        <div key={i} className="flex items-start gap-2">
+          <Textarea rows={2} className="flex-1" value={item}
+            onChange={e => ops.update(i, e.target.value)} />
+          <ListControls index={i} count={items.length} onMove={ops.move} onRemove={ops.remove} />
+        </div>
+      ))}
+      <Button type="button" variant="outline" size="sm" className="gap-1.5"
+        onClick={() => onChange([...items, ""])}>
+        <Plus className="h-3.5 w-3.5" />Add {field.itemLabel}
+      </Button>
+    </div>
+  )
+}
+
+function RowListEditor({ field, value, label, help, onChange }: {
+  field: Extract<Field, { kind: "rows" }>
+  value: any
+  label: React.ReactNode
+  help: React.ReactNode
+  onChange: (value: any[]) => void
+}) {
+  const items: any[] = Array.isArray(value) ? value : []
+  const ops = useListOps(items, onChange)
+  const blank = Object.fromEntries(field.columns.map(c => [c.key, ""]))
+
+  return (
+    <div className="space-y-2">
+      {label}{help}
+      {items.length === 0 && <EmptyListNote itemLabel={field.itemLabel} />}
+      {items.map((row, i) => (
+        <Card key={i}>
+          <CardContent className="flex items-start gap-3 pt-4">
+            <span className="mt-2 w-5 shrink-0 font-mono text-xs text-muted-foreground">{i + 1}</span>
+            <div className="grid flex-1 grid-cols-1 gap-3 md:grid-cols-2">
+              {field.columns.map(col => (
+                <ColumnInput key={col.key} column={col} value={row?.[col.key]}
+                  onChange={v => ops.update(i, { ...row, [col.key]: v })} />
+              ))}
+            </div>
+            <ListControls index={i} count={items.length} onMove={ops.move} onRemove={ops.remove} />
+          </CardContent>
+        </Card>
+      ))}
+      <Button type="button" variant="outline" size="sm" className="gap-1.5"
+        onClick={() => onChange([...items, blank])}>
+        <Plus className="h-3.5 w-3.5" />Add {field.itemLabel}
+      </Button>
     </div>
   )
 }
