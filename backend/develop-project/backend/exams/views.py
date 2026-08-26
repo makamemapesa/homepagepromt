@@ -6,7 +6,7 @@ from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 
-from core.permissions import IsTeacherOrAdmin, IsTeacherOrAdminOrParentReadOnly
+from core.permissions import CanReadExamRecords, IsTeacherOrAdmin
 from core.utils import get_teacher_class_ids, get_teacher_for, get_user_role
 from .models import ExamMark, ExamResult, SubjectResult, _compute_grade, _compute_division
 from .serializers import ExamMarkSerializer, ExamResultSerializer, SubjectResultSerializer
@@ -37,7 +37,7 @@ class ExamMarkViewSet(viewsets.ModelViewSet):
     """
     queryset = ExamMark.objects.select_related("student", "subject", "student_class").all()
     serializer_class = ExamMarkSerializer
-    permission_classes = [IsTeacherOrAdminOrParentReadOnly]
+    permission_classes = [CanReadExamRecords]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["student_class", "subject", "term", "exam_type", "academic_session"]
 
@@ -55,6 +55,13 @@ class ExamMarkViewSet(viewsets.ModelViewSet):
             return ExamMark.objects.filter(
                 student_class_id__in=class_ids
             ).select_related("student", "subject", "student_class")
+
+        elif role == 'accountant':
+            # Read-only and unscoped: the bursar reconciles fees against every
+            # class, so narrowing this would only hide half the ledger.
+            return ExamMark.objects.select_related(
+                "student", "subject", "student_class"
+            ).all()
         
         elif role == 'parent':
             # Parents see their children's marks only for terms whose report card
@@ -79,7 +86,7 @@ class ExamMarkViewSet(viewsets.ModelViewSet):
         """Teachers and admins can create/update marks."""
         if self.action in ['create', 'update', 'partial_update', 'bulk_save']:
             return [IsTeacherOrAdmin()]
-        return [IsTeacherOrAdminOrParentReadOnly()]
+        return [CanReadExamRecords()]
 
     @action(detail=False, methods=["get"])
     def available_types(self, request):
@@ -198,7 +205,7 @@ class ExamResultViewSet(viewsets.ModelViewSet):
     """
     queryset = ExamResult.objects.select_related("student", "student_class").prefetch_related("subject_results__subject").all()
     serializer_class = ExamResultSerializer
-    permission_classes = [IsTeacherOrAdminOrParentReadOnly]
+    permission_classes = [CanReadExamRecords]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["student_class", "term", "academic_session", "grade", "status"]
     search_fields = ["student__first_name", "student__last_name", "student__reg_no"]
@@ -223,6 +230,14 @@ class ExamResultViewSet(viewsets.ModelViewSet):
             ).select_related("student", "student_class").prefetch_related(
                 "subject_results__subject"
             )
+
+        elif role == 'accountant':
+            # Every result, read-only. Unlike a parent this is not gated on
+            # release: the accountant is the one who confirms the payment that
+            # releases it, so they must see what is waiting.
+            return ExamResult.objects.select_related(
+                "student", "student_class"
+            ).prefetch_related("subject_results__subject").all()
         
         elif role == 'parent':
             # Parents see only their children's results, and only once the school
@@ -243,7 +258,7 @@ class ExamResultViewSet(viewsets.ModelViewSet):
         if self.action in ['create', 'update', 'partial_update', 'destroy',
                            'compute_results', 'send_to_parents']:
             return [IsTeacherOrAdmin()]
-        return [IsTeacherOrAdminOrParentReadOnly()]
+        return [CanReadExamRecords()]
 
     @action(detail=False, methods=["post"])
     def compute_results(self, request):
@@ -478,6 +493,13 @@ class ExamResultViewSet(viewsets.ModelViewSet):
           academic_session : str  (defaults to the school's current session)
           student_ids      : list — optional, narrows the send to these students
           resend           : bool — re-send report cards already sent (default false)
+          override_fees    : bool — release even where fees are outstanding
+          override_reason  : str  — why the waiver was granted, recorded on the result
+
+        ``override_fees`` is the deliberate exception to the fee gate: a head
+        teacher waiving it for a sponsored pupil, a hardship case, or a family
+        whose payment is genuinely in transit. Administrators only — a teacher
+        cannot see the ledger, so they are in no position to forgive it.
 
         Releasing a report does two things: it stamps ``released_at``, which is
         what makes the report visible in the parent portal at all, and it drops a
@@ -502,6 +524,8 @@ class ExamResultViewSet(viewsets.ModelViewSet):
         session = (request.data.get("academic_session")
                    or (cfg.academic_session if cfg else None) or "2026").strip()
         resend  = bool(request.data.get("resend"))
+        override_fees = bool(request.data.get("override_fees"))
+        override_reason = (request.data.get("override_reason") or "").strip()
 
         student_ids = request.data.get("student_ids")
         if student_ids is not None and not isinstance(student_ids, list):
@@ -509,6 +533,14 @@ class ExamResultViewSet(viewsets.ModelViewSet):
 
         user = request.user
         role = get_user_role(user)
+
+        if override_fees and role not in ('super_admin', 'admin'):
+            return Response(
+                {"error": "Only an administrator can release a report card while fees are "
+                          "outstanding."},
+                status=403,
+            )
+
         allowed_classes = None
         if role == 'teacher':
             allowed_classes = get_teacher_class_ids(get_teacher_for(user))
@@ -554,6 +586,7 @@ class ExamResultViewSet(viewsets.ModelViewSet):
         school_name = (cfg.school_name if cfg else None) or "The school"
         now = timezone.now()
         released = []
+        waived = []
         notifications = []
         skipped = []
 
@@ -575,7 +608,7 @@ class ExamResultViewSet(viewsets.ModelViewSet):
                 continue
 
             cleared, reason = clearance[result.student_id]
-            if not cleared:
+            if not cleared and not override_fees:
                 skip(result, reason)
                 continue
 
@@ -586,6 +619,13 @@ class ExamResultViewSet(viewsets.ModelViewSet):
 
             result.released_at = now
             result.released_by = user
+            if not cleared:
+                # Only stamp the waiver on the students it was actually needed
+                # for, so a class-wide override does not mark paid-up families
+                # as having been let off.
+                result.fee_override = True
+                result.fee_override_reason = override_reason
+                waived.append(result)
             released.append(result)
 
             position = f"position {result.position} of {result.student_class.name}" if result.position else "position not ranked"
@@ -603,14 +643,38 @@ class ExamResultViewSet(viewsets.ModelViewSet):
 
         with transaction.atomic():
             if released:
-                ExamResult.objects.bulk_update(released, ["released_at", "released_by"])
+                ExamResult.objects.bulk_update(
+                    released,
+                    ["released_at", "released_by", "fee_override", "fee_override_reason"],
+                )
             if notifications:
                 Notification.objects.bulk_create(notifications)
+            if waived:
+                # The middleware logs the send itself; a waiver is a policy
+                # exception on top of it and is worth naming the pupils in, so
+                # the bursar can see exactly who was let through and why.
+                from core.models import AuditLog
+
+                names = ", ".join(r.student.full_name for r in waived)
+                AuditLog.objects.create(
+                    user=user,
+                    action="UPDATE",
+                    module="Exams",
+                    detail=(
+                        f"Released {len(waived)} report card(s) for {term} despite unpaid fees: "
+                        f"{names}." + (f" Reason: {override_reason}" if override_reason else
+                                       " No reason given.")
+                    ),
+                    status="success",
+                )
 
         return Response(
             {
                 "sent": len(released),
                 "notified": len(notifications),
+                # How many of those went out on a waiver, so the screen can say
+                # so rather than reporting a plain success.
+                "waived": len(waived),
                 "skipped": skipped,
                 "term": term,
                 "session": session,

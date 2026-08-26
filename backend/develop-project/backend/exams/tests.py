@@ -680,3 +680,151 @@ class SendReportsToParentsTests(ExamPanelTestCase):
 
         terms = {row["term"] for row in res.json()["results"]}
         self.assertEqual(terms, {TERM})
+
+
+class FeeOverrideTests(ExamPanelTestCase):
+    """Releasing a report card while the fees are still owed.
+
+    The gate exists so an unpaid family cannot collect a report card, but a
+    school still needs a way to let one through: a sponsored pupil, a hardship
+    case, a payment the bursar has seen but not yet entered. That decision
+    belongs to an administrator, and it has to leave a trace.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from django.contrib.auth.models import User
+
+        from core.models import UserProfile
+        from students.models import ParentGuardian
+
+        # One pupil, marked and computed, with a parent account and no payment.
+        self.parent_user = User.objects.create_user(
+            username="parent@school.test", email="parent@school.test", password="StrongPass123"
+        )
+        UserProfile.objects.update_or_create(user=self.parent_user, defaults={"role": "parent"})
+        self.parent_user.refresh_from_db()
+        ParentGuardian.objects.create(
+            student=self.students[0], user=self.parent_user, full_name="A Parent",
+            relationship="Mother", phone="+255700000000", is_primary=True,
+        )
+        self.bulk_save([
+            self.mark_payload(self.students[0], self.maths, "Final Exam", 70),
+        ])
+        self.compute(ca_types=[], final_exam_type="Final Exam")
+
+    def send(self, **extra):
+        body = {"student_class": self.cls.id, "term": TERM, "academic_session": SESSION}
+        body.update(extra)
+        return self.client.post("/api/exam-results/send_to_parents/", body, format="json")
+
+    def result(self):
+        return ExamResult.objects.get(student=self.students[0], term=TERM)
+
+    # ── without the override ──────────────────────────────────────────
+
+    def test_an_unpaid_report_is_held_back_by_default(self):
+        res = self.send()
+
+        self.assertEqual(res.data["sent"], 0)
+        self.assertIn("No confirmed fee payment", res.data["skipped"][0]["reason"])
+        self.assertIsNone(self.result().released_at)
+
+    # ── with it ───────────────────────────────────────────────────────
+
+    def test_an_admin_can_release_despite_unpaid_fees(self):
+        res = self.send(override_fees=True, override_reason="Sponsored pupil")
+
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["sent"], 1)
+        self.assertEqual(res.data["waived"], 1)
+        row = self.result()
+        self.assertIsNotNone(row.released_at)
+        self.assertTrue(row.fee_override)
+        self.assertEqual(row.fee_override_reason, "Sponsored pupil")
+
+    def test_the_released_report_then_reaches_the_parent(self):
+        """The whole point: the family can actually open it afterwards."""
+        self.send(override_fees=True, override_reason="Hardship")
+
+        parent = APIClient()
+        parent.force_authenticate(user=self.parent_user)
+        res = parent.get("/api/exam-results/")
+
+        rows = res.json()["results"] if "results" in res.json() else res.json()
+        self.assertEqual(len(rows), 1)
+
+    def test_the_waiver_is_written_to_the_audit_log(self):
+        from core.models import AuditLog
+
+        self.send(override_fees=True, override_reason="Payment seen at the bank")
+
+        # The request middleware logs the send itself too, so target the waiver
+        # entry by its text rather than by whichever row happens to be last.
+        entry = AuditLog.objects.filter(detail__contains="despite unpaid fees").first()
+        self.assertIsNotNone(entry, "no audit entry was written for the waiver")
+        self.assertIn(self.students[0].full_name, entry.detail)
+        self.assertIn("Payment seen at the bank", entry.detail)
+
+    def test_a_waiver_with_no_reason_still_says_so(self):
+        from core.models import AuditLog
+
+        self.send(override_fees=True)
+
+        entry = AuditLog.objects.filter(detail__contains="despite unpaid fees").first()
+        self.assertIn("No reason given", entry.detail)
+
+    def test_a_paid_student_is_not_marked_as_waived(self):
+        """A class-wide override must not brand families who had in fact paid."""
+        from datetime import date as _date
+        from decimal import Decimal
+
+        from fees.models import Payment
+
+        Payment.objects.create(
+            student=self.students[0], amount=Decimal("100000"), date=_date(2026, 5, 1),
+            method="Cash", status="confirmed", term=TERM,
+        )
+
+        res = self.send(override_fees=True, override_reason="Blanket release")
+
+        self.assertEqual(res.data["sent"], 1)
+        self.assertEqual(res.data["waived"], 0)
+        self.assertFalse(self.result().fee_override)
+
+    # ── who may do it ─────────────────────────────────────────────────
+
+    def test_a_teacher_cannot_waive_fees(self):
+        """A teacher cannot even read the ledger, so they cannot forgive it."""
+        teacher_user = User.objects.create_user(
+            username="t_waive", email="t_waive@school.test", password="StrongPass123"
+        )
+        from core.models import UserProfile
+        UserProfile.objects.update_or_create(user=teacher_user, defaults={"role": "teacher"})
+        teacher_user.refresh_from_db()
+        teacher = Teacher.objects.filter(email="t_waive@school.test").first()
+        if teacher:
+            self.cls.class_teacher = teacher
+            self.cls.save()
+        self.client.force_authenticate(user=teacher_user)
+
+        res = self.send(override_fees=True, override_reason="Please")
+
+        self.assertEqual(res.status_code, 403)
+        self.assertIn("administrator", res.data["error"])
+        self.assertIsNone(self.result().released_at)
+
+    def test_the_override_cannot_be_forged_through_a_plain_patch(self):
+        """The flag must not be settable outside send_to_parents."""
+        row = self.result()
+
+        res = self.client.patch(
+            f"/api/exam-results/{row.id}/",
+            {"fee_override": True, "released_at": "2026-05-01T00:00:00Z"},
+            format="json",
+        )
+
+        row.refresh_from_db()
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(row.fee_override)
+        self.assertIsNone(row.released_at)

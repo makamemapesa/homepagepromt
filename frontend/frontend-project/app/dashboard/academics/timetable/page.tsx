@@ -190,7 +190,7 @@ export default function TimetablePage() {
 
   useEffect(() => {
     if (authLoading || !user) return
-    if (!["super_admin", "admin", "teacher"].includes(user.role)) return
+    if (!["super_admin", "admin", "teacher", "staff"].includes(user.role)) return
     fetchTimetable()
     api.get("/api/academic-calendar/").then(r => setCalendarEvents(getResults(r.data))).catch(() => {})
     api.get("/api/classes/").then(r => {
@@ -295,7 +295,7 @@ export default function TimetablePage() {
     : null
 
   if (authLoading || !user) return null
-  if (!["super_admin", "admin", "teacher"].includes(user.role)) { router.replace("/dashboard"); return null }
+  if (!["super_admin", "admin", "teacher", "staff"].includes(user.role)) { router.replace("/dashboard"); return null }
 
   return (
     <>

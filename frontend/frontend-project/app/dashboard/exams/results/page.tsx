@@ -140,8 +140,13 @@ export default function ResultsPage() {
   // extract academic session from selected term e.g. "Term 2, 2026" → "2026"
   // (already declared above)
 
+  // Accountants and parents read this screen; only the people who own the marks
+  // recompute from them. Without this the scoring panel and its button rendered
+  // for everyone and simply did nothing when clicked.
+  const canCompute = !!user && ["super_admin", "admin", "teacher"].includes(user.role)
+
   const handleCompute = async () => {
-    if (!user || !["super_admin", "admin", "teacher"].includes(user.role)) return
+    if (!canCompute) return
     if (!selectedClassId) return
     setComputing(true); setComputeMsg(null)
     try {
@@ -358,21 +363,23 @@ export default function ResultsPage() {
           )}
 
           {/* Compute button */}
-          <div className="flex items-center gap-4 pt-1">
-            <Button
-              onClick={handleCompute}
-              disabled={!ready || computing || availableTypes.length === 0}
-              className="gap-2"
-            >
-              <RefreshCw className={`h-4 w-4 ${computing ? "animate-spin" : ""}`} />
-              {computing ? "Computing…" : "Compute Results"}
-            </Button>
-            {computeMsg && (
-              <p className={`text-sm ${computeMsg.startsWith("✓") ? "text-accent" : "text-destructive"}`}>
-                {computeMsg}
-              </p>
-            )}
-          </div>
+          {canCompute && (
+            <div className="flex items-center gap-4 pt-1">
+              <Button
+                onClick={handleCompute}
+                disabled={!ready || computing || availableTypes.length === 0}
+                className="gap-2"
+              >
+                <RefreshCw className={`h-4 w-4 ${computing ? "animate-spin" : ""}`} />
+                {computing ? "Computing…" : "Compute Results"}
+              </Button>
+              {computeMsg && (
+                <p className={`text-sm ${computeMsg.startsWith("✓") ? "text-accent" : "text-destructive"}`}>
+                  {computeMsg}
+                </p>
+              )}
+            </div>
+          )}
 
         </CardContent>
       </Card>

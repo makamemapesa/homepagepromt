@@ -5,7 +5,9 @@ from django.db.models import Sum, Max, Q
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter
 
-from core.permissions import IsAccountantOrAdmin, IsAccountantOrAdminOrParentReadOnly
+from core.permissions import (
+    CanReadExamRecords, IsAccountantOrAdmin, IsAccountantOrAdminOrParentReadOnly,
+)
 from core.utils import get_user_role
 from .models import FeeStructure, Payment
 from .serializers import FeeStructureSerializer, PaymentSerializer
@@ -54,7 +56,55 @@ class PaymentViewSet(viewsets.ModelViewSet):
         """Only accountants and admins can create/update payments."""
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
             return [IsAccountantOrAdmin()]
+        if self.action == 'clearance':
+            # Teachers need the yes/no, not the ledger — see the action below.
+            return [CanReadExamRecords()]
         return [IsAccountantOrAdminOrParentReadOnly()]
+
+    @action(detail=False, methods=["get"])
+    def clearance(self, request):
+        """Who is clear to receive term-end paperwork, without exposing amounts.
+
+        GET /api/fees/payments/clearance/?term=<term>[&student_class=<id>]
+
+        The Report Cards screen has to know which students are paid up before it
+        will print or release anything. It used to work that out by reading every
+        payment for the term, which a teacher is not allowed to do — so for them
+        the whole class came back unpaid and every button stayed disabled.
+
+        This returns the decision and a sentence explaining it, and nothing else:
+        no amounts, no dates, no receipt numbers. Scoped per role, so a teacher
+        sees their own classes and a parent only their own children.
+        """
+        from core.utils import get_teacher_class_ids, get_teacher_for
+        from students.models import Student
+        from .services import term_fee_clearance
+
+        term = (request.query_params.get("term") or "").strip()
+        if not term:
+            return Response({"error": "term is required."}, status=400)
+
+        students = Student.objects.all()
+        class_id = request.query_params.get("student_class")
+        if class_id and class_id != "all":
+            students = students.filter(student_class_id=class_id)
+
+        role = get_user_role(request.user)
+        if role == "teacher":
+            students = students.filter(
+                student_class_id__in=get_teacher_class_ids(get_teacher_for(request.user))
+            )
+        elif role == "parent":
+            students = students.filter(guardians__user=request.user).distinct()
+
+        clearance = term_fee_clearance(students.values_list("id", flat=True), term)
+        return Response({
+            "term": term,
+            "students": [
+                {"student": student_id, "cleared": cleared, "reason": reason}
+                for student_id, (cleared, reason) in sorted(clearance.items())
+            ],
+        })
 
     @action(detail=False, methods=["get"])
     def outstanding(self, request):

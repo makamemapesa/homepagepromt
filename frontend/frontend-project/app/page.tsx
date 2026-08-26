@@ -296,7 +296,9 @@ export default function HomePage() {
           </nav>
 
           <div className="flex items-center gap-2">
-            <Link href="/results">
+            {/* There is no public /results route — results live behind the
+                parent and student portals, so this is a sign-in entry point. */}
+            <Link href="/login">
               <Button variant="ghost" size="sm"
                 className="text-[12px] text-white/60 hover:text-white hover:bg-white/8 h-8 px-3">
                 {txt("nav_results_label", "Results")}
@@ -1216,7 +1218,7 @@ export default function HomePage() {
                   { label: "Student Portal", href: "/login" },
                   { label: "Parent Portal", href: "/login" },
                   { label: "Staff Portal", href: "/login" },
-                  { label: "Results Portal", href: "/results" },
+                  { label: "Results Portal", href: "/login" },
                   { label: "Admin Login", href: "/login" },
                 ]).map((l, i) => (
                   <a key={`${l.label}-${i}`} href={l.href || "/login"}

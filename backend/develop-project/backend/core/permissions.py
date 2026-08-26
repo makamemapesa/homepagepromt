@@ -1,5 +1,65 @@
-from rest_framework.permissions import BasePermission
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 from .utils import get_user_role
+
+
+class RoleAccess(BasePermission):
+    """Base for "these roles may write, these may read" rules.
+
+    Subclasses set ``WRITE_ROLES`` and ``READ_ROLES``; ``READ_ROLES`` is taken to
+    include everyone who may write, so only the extra readers need listing.
+
+    Every viewset still scopes *which rows* a role sees in ``get_queryset`` —
+    this only decides who gets through the door.
+    """
+
+    WRITE_ROLES: tuple = ()
+    READ_ROLES: tuple = ()
+
+    def has_permission(self, request, view):
+        role = get_user_role(request.user)
+        if role in self.WRITE_ROLES:
+            return True
+        return request.method in SAFE_METHODS and role in self.READ_ROLES
+
+
+class CanReadAcademicReference(RoleAccess):
+    """Classes, subjects, timetables and the calendar.
+
+    This is reference data: everyone who works in the school needs to be able to
+    name a class or read the bell schedule — the accountant billing it, the
+    parent opening a report card, the staff member checking a room. Keeping it
+    behind the teacher role meant the accountant's and parent's class pickers
+    came back empty, and every screen that starts with "choose a class" was dead
+    for them. Writes stay where they were; each viewset narrows them further in
+    its own ``get_permissions``.
+    """
+
+    WRITE_ROLES = ("super_admin", "admin", "teacher")
+    READ_ROLES = WRITE_ROLES + ("accountant", "parent", "staff")
+
+
+class CanReadExamRecords(RoleAccess):
+    """Marks and results: taught by teachers, read by the office and by parents.
+
+    Accountants are readers because releasing a report card is fee-gated — they
+    confirm the payment that unlocks it, so they need to see what is being
+    released. They cannot enter or alter a mark.
+    """
+
+    WRITE_ROLES = ("super_admin", "admin", "teacher")
+    READ_ROLES = WRITE_ROLES + ("accountant", "parent")
+
+
+class CanReadTeacherDirectory(RoleAccess):
+    """Staff names, for the pickers that attribute work to a colleague.
+
+    Teachers could not read this, so the teacher column on the timetable, the
+    class-teacher name on a report card and the author picker on a lesson plan
+    were all blank for them — the one role that uses those screens most.
+    """
+
+    WRITE_ROLES = ("super_admin", "admin")
+    READ_ROLES = WRITE_ROLES + ("teacher",)
 
 
 class IsSuperAdmin(BasePermission):

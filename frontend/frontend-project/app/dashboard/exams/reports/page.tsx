@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { useUser } from "@/contexts/user-context"
 import { api, getResults } from "@/lib/api-client"
 import { exportCSV, buildTermOptions } from "@/lib/utils"
-import { Search, Download, Printer, FileText, GraduationCap, Award, RefreshCw, Send } from "lucide-react"
+import { Search, Download, Printer, FileText, GraduationCap, Award, RefreshCw, Send, ShieldAlert } from "lucide-react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -18,7 +18,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
 import { Separator } from "@/components/ui/separator"
 import { Progress } from "@/components/ui/progress"
@@ -57,12 +57,19 @@ export default function ReportCardsPage() {
   const [studentAttendance, setStudentAttendance] = useState<{ present: number; absent: number; late: number } | null>(null)
   const [studentPayments, setStudentPayments] = useState<{ total: number; confirmed: number; pending: number; records: any[] } | null>(null)
   const [paidStudentIds, setPaidStudentIds] = useState<Set<number>>(new Set())
+  // Why a student is not cleared, phrased by the server. Shown to whoever
+  // cannot see the ledger itself.
+  const [blockedReason, setBlockedReason] = useState<Map<number, string>>(new Map())
   const [savingComment, setSavingComment] = useState(false)
   const [commentSaved, setCommentSaved] = useState(false)
   const [commentMsg, setCommentMsg] = useState("")
   const [sending, setSending] = useState(false)
   const [sendSummary, setSendSummary] = useState<any>(null)
   const [sendError, setSendError] = useState("")
+  // Releasing despite unpaid fees is an administrator's decision, so it gets its
+  // own confirmation rather than riding along on the ordinary Send button.
+  const [overrideOpen, setOverrideOpen] = useState<null | { studentIds?: number[]; label: string }>(null)
+  const [overrideReason, setOverrideReason] = useState("")
 
   useEffect(() => {
     if (authLoading || !user) return
@@ -90,6 +97,10 @@ export default function ReportCardsPage() {
 
     // Fetch payments for this student filtered by term
     const term = selectedReport.term || selectedTerm
+    // Teachers cannot read the payment ledger, and should not need to: the
+    // clearance call above already answered the only question this screen asks.
+    // Leaving studentPayments null for them shows the clearance line instead of
+    // a row of zeros that reads as "this family has paid nothing".
     api.get(`/api/fees/payments/?student=${studentId}&term=${encodeURIComponent(term)}&page_size=500`)
       .then(r => {
         const records: any[] = Array.isArray(r.data) ? r.data : (r.data?.results ?? [])
@@ -97,7 +108,7 @@ export default function ReportCardsPage() {
         const pending   = records.filter(p => p.status === "pending").reduce((s, p) => s + Number(p.amount), 0)
         setStudentPayments({ total: confirmed + pending, confirmed, pending, records })
       })
-      .catch(() => setStudentPayments({ total: 0, confirmed: 0, pending: 0, records: [] }))
+      .catch(() => setStudentPayments(null))
   }, [selectedReport, user, authLoading])
 
   useEffect(() => {
@@ -134,25 +145,24 @@ export default function ReportCardsPage() {
       .then(r => { setReportCardData(getResults(r.data)); setLoadMsg("") })
       .catch(() => { setReportCardData([]); setLoadMsg("Could not load report cards for this class and term.") })
       .finally(() => setLoading(false))
-    // Fetch all payments for the term to know which students are fully paid
-    api.get(`/api/fees/payments/?term=${encodeURIComponent(selectedTerm)}&page_size=500`)
+    // Who is cleared to receive paperwork this term. This used to read every
+    // payment for the term and work it out here, which a teacher is not allowed
+    // to do — so for them every student came back unpaid and Print, Download and
+    // Send to Parents were disabled across the whole class.
+    const scopeParam = selectedClassId === "all" ? "" : `&student_class=${selectedClassId}`
+    api.get(`/api/fees/payments/clearance/?term=${encodeURIComponent(selectedTerm)}${scopeParam}`)
       .then(r => {
-        const records: any[] = getResults(r.data)
-        const byStudent = new Map<number, { confirmed: number; pending: number }>()
-        for (const p of records) {
-          const sid = Number(p.student)
-          if (!byStudent.has(sid)) byStudent.set(sid, { confirmed: 0, pending: 0 })
-          const entry = byStudent.get(sid)!
-          if (p.status === "confirmed") entry.confirmed += Number(p.amount)
-          else if (p.status === "pending") entry.pending += Number(p.amount)
-        }
+        const rows: any[] = r.data?.students ?? []
         const paid = new Set<number>()
-        for (const [sid, { confirmed, pending }] of byStudent) {
-          if (confirmed > 0 && pending === 0) paid.add(sid)
+        const reasons = new Map<number, string>()
+        for (const row of rows) {
+          if (row.cleared) paid.add(Number(row.student))
+          else reasons.set(Number(row.student), row.reason || "")
         }
         setPaidStudentIds(paid)
+        setBlockedReason(reasons)
       })
-      .catch(() => setPaidStudentIds(new Set()))
+      .catch(() => { setPaidStudentIds(new Set()); setBlockedReason(new Map()) })
   }, [selectedClassId, selectedTerm, academicSession, fetchTick, user, authLoading])
 
   const filtered = useMemo(() => {
@@ -168,12 +178,25 @@ export default function ReportCardsPage() {
   // parent portal keys off. It is not the same thing as being promoted, which is
   // what this counter used to show under the label "Published".
   const sentCount = reportCardData.filter(r => !!r.releasedAt).length
+  // Students on screen who are not fee-cleared and have not already been sent.
+  const unpaidCount = reportCardData.filter(
+    r => !paidStudentIds.has(Number(r.student)) && !r.releasedAt
+  ).length
   const ready = !!selectedClassId
 
-  const canSend = !!user && ["super_admin", "admin", "teacher"].includes(user.role)
+  // Who may change anything on this screen. Accountants and parents read it:
+  // the accountant to see what a payment is about to release, the parent to
+  // read their own child's report. Neither writes the class teacher's comment
+  // nor releases a card.
+  const canManage = !!user && ["super_admin", "admin", "teacher"].includes(user.role)
+  // A teacher cannot see the fee ledger, so they are in no position to forgive
+  // it. The server enforces this too; this only keeps the button off their screen.
+  const canOverrideFees = !!user && ["super_admin", "admin"].includes(user.role)
 
   /** Release report cards to parents. Returns the server's summary, or null. */
-  const sendToParents = async (opts?: { studentIds?: number[]; resend?: boolean }) => {
+  const sendToParents = async (
+    opts?: { studentIds?: number[]; resend?: boolean; overrideFees?: boolean; reason?: string }
+  ) => {
     if (!selectedClassId) return null
     setSending(true); setSendError(""); setSendSummary(null)
     try {
@@ -183,6 +206,7 @@ export default function ReportCardsPage() {
         academic_session: academicSession,
         ...(opts?.studentIds ? { student_ids: opts.studentIds } : {}),
         ...(opts?.resend    ? { resend: true } : {}),
+        ...(opts?.overrideFees ? { override_fees: true, override_reason: opts.reason || "" } : {}),
       })
       if (!opts?.studentIds) setSendSummary(res.data)
       setFetchTick(t => t + 1)
@@ -408,7 +432,7 @@ export default function ReportCardsPage() {
                 <CardDescription>{selectedClassName} · {selectedTerm} · Click &quot;View&quot; to open full report card</CardDescription>
               </div>
               <div className="flex items-center gap-2">
-                {canSend && (
+                {canManage && (
                   <Button
                     size="sm"
                     className="gap-1.5"
@@ -416,6 +440,20 @@ export default function ReportCardsPage() {
                     onClick={() => sendToParents()}
                   >
                     <Send className="h-4 w-4" />{sending ? "Sending…" : "Send to Parents"}
+                  </Button>
+                )}
+                {canOverrideFees && unpaidCount > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 border-yellow-400/40 text-yellow-700 hover:bg-yellow-500/10"
+                    disabled={sending}
+                    onClick={() => {
+                      setOverrideReason("")
+                      setOverrideOpen({ label: `${unpaidCount} student${unpaidCount === 1 ? "" : "s"} with unpaid fees` })
+                    }}
+                  >
+                    <ShieldAlert className="h-4 w-4" />Release despite fees
                   </Button>
                 )}
                 <DropdownMenu>
@@ -435,7 +473,7 @@ export default function ReportCardsPage() {
                 </DropdownMenu>
               </div>
             </div>
-            {canSend && (
+            {canManage && (
               <p className="text-xs text-muted-foreground">
                 Sending releases each report card to the parent portal and notifies the linked
                 guardians. Students whose fees for {selectedTerm} are not fully settled are held
@@ -539,9 +577,9 @@ export default function ReportCardsPage() {
             const reg = selectedReport.regNo || selectedReport.reg_no || ""
             const className = selectedReport.className || selectedReport.class_name || ""
             const isPassed = selectedReport.status === "promoted" || selectedReport.status === "passed"
-            const isPaid = studentPayments !== null
-              && studentPayments.confirmed > 0
-              && studentPayments.pending === 0
+            // The server decides this, so the button and the release endpoint
+            // can never disagree about who has paid.
+            const isPaid = paidStudentIds.has(Number(selectedReport.student))
             return (
               <div className="space-y-4">
                 <div className="rounded-lg border bg-primary/5 p-4 text-center">
@@ -625,7 +663,19 @@ export default function ReportCardsPage() {
                   </div>
                 )}
                 <Separator />
-                {/* Fee Payment Status */}
+                {/* Fee Payment Status. Hidden from anyone who cannot read the
+                    ledger; the clearance line above still tells them where the
+                    student stands. */}
+                {!studentPayments && (
+                  <div>
+                    <p className="text-sm font-semibold mb-2">Fee Payment Status — {selectedReport.term || selectedTerm}</p>
+                    <p className={`text-sm ${isPaid ? "text-accent" : "text-destructive"}`}>
+                      {isPaid
+                        ? "Fees cleared for this term."
+                        : blockedReason.get(Number(selectedReport.student)) || "Not cleared for this term."}
+                    </p>
+                  </div>
+                )}
                 {studentPayments && (
                   <div>
                     <p className="text-sm font-semibold mb-2">Fee Payment Status — {selectedReport.term || selectedTerm}</p>
@@ -661,13 +711,14 @@ export default function ReportCardsPage() {
                   <div>
                     <label className="text-sm font-medium mb-1 block">Class Teacher's Comment</label>
                     <Textarea
-                      placeholder="Enter class teacher's comment..."
+                      placeholder={canManage ? "Enter class teacher's comment..." : "No comment recorded."}
                       value={teacherComment}
                       onChange={e => { setTeacherComment(e.target.value); setCommentSaved(false); setCommentMsg("") }}
                       rows={3}
-                      disabled={user?.role === "parent"}
+                      readOnly={!canManage}
+                      disabled={!canManage}
                     />
-                    {user?.role !== "parent" && (
+                    {canManage && (
                       <div className="flex items-center gap-2 mt-2">
                         <Button
                           size="sm"
@@ -732,9 +783,28 @@ export default function ReportCardsPage() {
                       Not yet sent. Parents cannot see this report card until it is.
                     </p>
                   )}
-                  {studentPayments !== null && !isPaid && (
+                  {!isPaid && canOverrideFees && (
+                    <div className="flex justify-end">
+                      <Button
+                        variant="outline" size="sm"
+                        className="gap-1.5 border-yellow-400/40 text-yellow-700 hover:bg-yellow-500/10"
+                        disabled={sending}
+                        onClick={() => {
+                          setOverrideReason("")
+                          setOverrideOpen({
+                            studentIds: [Number(selectedReport.student)],
+                            label: selectedReport.studentName || selectedReport.student_name || "this student",
+                          })
+                        }}
+                      >
+                        <ShieldAlert className="h-4 w-4" />Release anyway
+                      </Button>
+                    </div>
+                  )}
+                  {!isPaid && (
                     <p className="text-xs text-destructive text-right">
-                      Sending, print and download are disabled until all fees for this term are fully paid.
+                      {blockedReason.get(Number(selectedReport.student))
+                        || "Sending, print and download are disabled until all fees for this term are fully paid."}
                     </p>
                   )}
                   {sendError && <p className="text-xs text-destructive text-right">{sendError}</p>}
@@ -743,7 +813,7 @@ export default function ReportCardsPage() {
                       {isPassed ? "Promoted" : "Repeat"}
                     </Badge>
                     <div className="flex gap-2">
-                      {canSend && (
+                      {canManage && (
                         <Button
                           size="sm"
                           className="gap-2"
@@ -779,6 +849,54 @@ export default function ReportCardsPage() {
       {/* What the send actually did. A partial send is the normal case, so the
           list of who was held back and why is the point of this dialog, not an
           afterthought — otherwise "Sent 12" reads as "all done". */}
+      {/* Fee waiver confirmation */}
+      <Dialog open={!!overrideOpen} onOpenChange={o => { if (!o) setOverrideOpen(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4 text-yellow-600" />Release despite unpaid fees
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              This releases the report card for <strong>{overrideOpen?.label}</strong> to the parent
+              portal even though the fees for {selectedTerm} are not settled. Report cards already
+              cleared are unaffected.
+            </p>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Reason (recorded in the audit log)</label>
+              <Textarea
+                rows={2}
+                placeholder="e.g. Sponsored pupil, or payment confirmed at the bank."
+                value={overrideReason}
+                onChange={e => setOverrideReason(e.target.value)}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Recorded against your account and flagged on each report card released this way.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOverrideOpen(null)}>Cancel</Button>
+            <Button
+              disabled={sending}
+              onClick={async () => {
+                const opts: { studentIds?: number[]; label?: string } = overrideOpen ?? {}
+                const summary = await sendToParents({
+                  studentIds: opts.studentIds,
+                  overrideFees: true,
+                  reason: overrideReason,
+                })
+                setOverrideOpen(null)
+                if (summary && opts.studentIds) setSendSummary(summary)
+              }}
+            >
+              {sending ? "Releasing…" : "Release"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!sendSummary} onOpenChange={() => setSendSummary(null)}>
         <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>

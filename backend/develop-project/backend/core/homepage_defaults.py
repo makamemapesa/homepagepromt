@@ -218,6 +218,6 @@ def footer_portal_links():
         {"label": "Student Portal", "href": "/login"},
         {"label": "Parent Portal", "href": "/login"},
         {"label": "Staff Portal", "href": "/login"},
-        {"label": "Results Portal", "href": "/results"},
+        {"label": "Results Portal", "href": "/login"},
         {"label": "Admin Login", "href": "/login"},
     ]

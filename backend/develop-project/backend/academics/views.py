@@ -6,7 +6,9 @@ from rest_framework.response import Response
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django_filters.rest_framework import DjangoFilterBackend
 
-from core.permissions import IsSuperAdminOrAdmin, IsTeacherOrAdmin
+from core.permissions import (
+    CanReadAcademicReference, CanReadTeacherDirectory, IsSuperAdminOrAdmin, IsTeacherOrAdmin,
+)
 from core.utils import (
     get_teacher_class_ids, get_teacher_for, get_teacher_homeroom_class_ids, get_user_role,
 )
@@ -33,7 +35,7 @@ class SubjectViewSet(viewsets.ModelViewSet):
     """
     queryset = Subject.objects.all()
     serializer_class = SubjectSerializer
-    permission_classes = [IsTeacherOrAdmin]
+    permission_classes = [CanReadAcademicReference]
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ["department", "type", "status"]
     search_fields = ["name", "code", "department"]
@@ -42,7 +44,7 @@ class SubjectViewSet(viewsets.ModelViewSet):
         """Only admins can create/update/delete subjects."""
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
             return [IsSuperAdminOrAdmin()]
-        return [IsTeacherOrAdmin()]
+        return [CanReadAcademicReference()]
 
 
 class TeacherViewSet(viewsets.ModelViewSet):
@@ -50,7 +52,7 @@ class TeacherViewSet(viewsets.ModelViewSet):
     Teacher management - Only Admins can create/modify, others can view.
     """
     queryset = Teacher.objects.prefetch_related("subjects", "assignments").all()
-    permission_classes = [IsSuperAdminOrAdmin]
+    permission_classes = [CanReadTeacherDirectory]
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ["department", "status", "gender"]
     search_fields = ["name", "email", "subjects__name"]
@@ -66,28 +68,34 @@ class ClassViewSet(viewsets.ModelViewSet):
     Class management - Only Admins can create/modify, teachers can view.
     """
     queryset = Class.objects.select_related("class_teacher").prefetch_related("subjects").all()
-    permission_classes = [IsTeacherOrAdmin]
+    permission_classes = [CanReadAcademicReference]
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ["section", "status"]
     search_fields = ["name", "class_teacher__name", "room"]
 
     def get_queryset(self):
-        """Teachers see only their assigned classes."""
+        """Everyone sees the classes their job actually touches."""
         user = self.request.user
         role = get_user_role(user)
+        base = Class.objects.select_related("class_teacher").prefetch_related("subjects")
 
-        if role in ['super_admin', 'admin']:
-            return Class.objects.select_related("class_teacher").prefetch_related("subjects").all()
-        elif role == 'teacher':
-            all_ids = get_teacher_class_ids(get_teacher_for(user))
-            return Class.objects.filter(id__in=all_ids).select_related("class_teacher").prefetch_related("subjects")
+        # The accountant bills every class and a staff member reads the whole
+        # bell schedule, so neither is narrowed. A class name is not private.
+        if role in ['super_admin', 'admin', 'accountant', 'staff']:
+            return base.all()
+        if role == 'teacher':
+            return base.filter(id__in=get_teacher_class_ids(get_teacher_for(user)))
+        if role == 'parent':
+            # Only the classes their own children sit in — enough for the class
+            # picker on Results and Report Cards, which was empty before.
+            return base.filter(students__guardians__user=user).distinct()
         return Class.objects.none()
 
     def get_permissions(self):
         """Only admins can create/update/delete classes."""
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
             return [IsSuperAdminOrAdmin()]
-        return [IsTeacherOrAdmin()]
+        return [CanReadAcademicReference()]
 
     def get_serializer_class(self):
         if self.action == "list":
@@ -113,16 +121,19 @@ class TimetableViewSet(viewsets.ModelViewSet):
     """
     queryset = Timetable.objects.select_related("student_class", "subject", "teacher").all()
     serializer_class = TimetableSerializer
-    permission_classes = [IsTeacherOrAdmin]
+    permission_classes = [CanReadAcademicReference]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["student_class", "day"]
 
     def get_queryset(self):
-        """Teachers see only their own timetables."""
+        """Teachers see their own lessons; everyone else sees the school's."""
         user = self.request.user
         role = get_user_role(user)
 
-        if role in ['super_admin', 'admin']:
+        # A staff member reads the timetable to know when rooms are in use and
+        # when the school day starts — there is nothing private in it, and
+        # returning nothing left their only real screen blank.
+        if role in ['super_admin', 'admin', 'staff']:
             return Timetable.objects.select_related("student_class", "subject", "teacher").all()
         elif role == 'teacher':
             teacher = get_teacher_for(user)
@@ -135,7 +146,7 @@ class TimetableViewSet(viewsets.ModelViewSet):
         """Only admins can create/update/delete timetables."""
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
             return [IsSuperAdminOrAdmin()]
-        return [IsTeacherOrAdmin()]
+        return [CanReadAcademicReference()]
 
 
 class ClassTeacherWritesMixin:
@@ -259,7 +270,7 @@ class AcademicCalendarViewSet(viewsets.ModelViewSet):
     """
     queryset = AcademicCalendar.objects.all()
     serializer_class = AcademicCalendarSerializer
-    permission_classes = [IsTeacherOrAdmin]
+    permission_classes = [CanReadAcademicReference]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["type"]
 
@@ -267,7 +278,7 @@ class AcademicCalendarViewSet(viewsets.ModelViewSet):
         """Only admins can create/update/delete calendar events."""
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
             return [IsSuperAdminOrAdmin()]
-        return [IsTeacherOrAdmin()]
+        return [CanReadAcademicReference()]
 
 
 class StudentAttendanceViewSet(ClassTeacherWritesMixin, viewsets.ModelViewSet):

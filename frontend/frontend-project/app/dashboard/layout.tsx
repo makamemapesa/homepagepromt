@@ -8,7 +8,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <UserProvider>
         <div className="min-h-screen bg-background">
           <SidebarWrapper />
-          <main className="transition-all duration-300 md:ml-64">
+          <main className="transition-all duration-300 md:ml-[var(--sidebar-width)]">
             {children}
           </main>
         </div>

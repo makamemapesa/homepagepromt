@@ -31,6 +31,7 @@ import {
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -552,7 +553,7 @@ export default function UsersPage() {
                     </div>
                     <div className="flex flex-col gap-1.5">
                       <Label>Password</Label>
-                      <Input type="password" placeholder="Set a password (min. 6 chars)" value={addForm.password} onChange={e => { setAddForm(f => ({ ...f, password: e.target.value })); setAddFieldErrors(fe => ({ ...fe, password: "" })) }} className={addFieldErrors.password ? "border-destructive" : ""} />
+                      <PasswordInput autoComplete="new-password" placeholder="Set a password (min. 6 chars)" value={addForm.password} onChange={e => { setAddForm(f => ({ ...f, password: e.target.value })); setAddFieldErrors(fe => ({ ...fe, password: "" })) }} className={addFieldErrors.password ? "border-destructive" : ""} />
                       {addFieldErrors.password && <p className="text-xs text-destructive">{addFieldErrors.password}</p>}
                     </div>
                     {addError && <p className="text-xs text-destructive">{addError}</p>}
@@ -750,8 +751,8 @@ export default function UsersPage() {
             </div>
             <div className="flex flex-col gap-1.5">
               <Label>New Password <span className="text-muted-foreground font-normal">(leave blank to keep current)</span></Label>
-              <Input
-                type="password"
+              <PasswordInput
+                autoComplete="new-password"
                 placeholder="Min. 6 characters"
                 value={editForm.password}
                 onChange={e => { setEditForm((f: any) => ({ ...f, password: e.target.value })); setEditFieldErrors(fe => ({ ...fe, password: "" })) }}
@@ -790,7 +791,7 @@ export default function UsersPage() {
           <div className="flex flex-col gap-4 py-4">
             <div className="flex flex-col gap-2">
               <Label>New Password</Label>
-              <Input type="password" placeholder="Min. 6 characters" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
+              <PasswordInput autoComplete="new-password" placeholder="Min. 6 characters" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
             </div>
             {resetError && <p className="text-xs text-destructive">{resetError}</p>}
           </div>

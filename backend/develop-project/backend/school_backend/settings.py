@@ -77,6 +77,19 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "school_backend.wsgi.application"
 
+# The interpreter this project runs on ships sqlite without the JSON1 extension,
+# so Django reports fields.E180 ("SQLite does not support JSONFields") and
+# refuses to run any management command that performs database checks — the test
+# runner included. ``core.sqlite_compat`` supplies the one function the schema
+# actually needs (JSON_VALID), which is what makes reads and writes work, so the
+# check is silenced deliberately and in tandem with it.
+#
+# The trade-off: JSON *lookups* (``field__key=...``) remain unsupported and will
+# fail at runtime rather than being caught by this check. Nothing in this project
+# uses one. Installing a Python whose sqlite has JSON1 (compiled in by default
+# from 3.38) makes both this line and the shim unnecessary.
+SILENCED_SYSTEM_CHECKS = ["fields.E180"]
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",

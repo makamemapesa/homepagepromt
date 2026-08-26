@@ -12,3 +12,9 @@ class CoreConfig(AppConfig):
             import core.signals  # noqa: F401
         except Exception:
             pass
+
+        # Restore JSONField writes on a sqlite build without JSON1. Deliberately
+        # not wrapped in try/except: if this fails to load, every settings and
+        # homepage save fails too, and a silent pass would turn that into a
+        # mystery 500 rather than a startup error naming the cause.
+        import core.sqlite_compat  # noqa: F401

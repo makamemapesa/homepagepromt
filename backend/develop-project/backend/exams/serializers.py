@@ -56,6 +56,7 @@ class ExamResultSerializer(serializers.ModelSerializer):
             "id", "total", "average", "position", "grade", "division",
             # Set only by ExamResultViewSet.send_to_parents, which is where the
             # fee check lives. Writable here, a PATCH could publish a report card
-            # to a family that has not paid.
-            "released_at", "released_by",
+            # to a family that has not paid — or forge the waiver that says an
+            # administrator allowed it.
+            "released_at", "released_by", "fee_override", "fee_override_reason",
         ]

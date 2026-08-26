@@ -89,7 +89,7 @@ export default function AcademicCalendarPage() {
   useEffect(() => {
     if (authLoading) return
     if (!user) { router.replace("/login"); return }
-    if (!["super_admin", "admin", "teacher"].includes(user.role)) { router.replace("/dashboard"); return }
+    if (!["super_admin", "admin", "teacher", "staff"].includes(user.role)) { router.replace("/dashboard"); return }
     fetchEvents()
   }, [authLoading, user])
 

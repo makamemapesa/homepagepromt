@@ -2,9 +2,10 @@
 
 import { useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Eye, EyeOff, Lock, Mail } from "lucide-react"
+import { Lock, Mail } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
 import axios from "axios"
 import { setTokens } from "@/lib/auth"
@@ -14,7 +15,6 @@ const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
 export default function LoginPage() {
   const branding = useSiteBranding()
-  const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
   const emailRef = useRef<HTMLInputElement>(null)
@@ -142,23 +142,15 @@ export default function LoginPage() {
                 </button>
               </div>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
+                <Lock className="absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <PasswordInput
                   id="password"
                   ref={passwordRef}
-                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
                   placeholder="Enter your password"
-                  className="pl-10 pr-10 bg-card"
+                  className="bg-card pl-10"
                   required
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  <span className="sr-only">{showPassword ? "Hide password" : "Show password"}</span>
-                </button>
               </div>
             </div>
 

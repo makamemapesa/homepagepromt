@@ -40,8 +40,15 @@ function ParentPortalContent() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [activeChild, setActiveChild] = useState(0)
-  // Read ?tab= from URL to pre-select a tab (e.g. from sidebar links)
-  const defaultTab = searchParams.get("tab") || "info"
+  // The sidebar links here differ only by ?tab=, and Next does not remount the
+  // page for a query-only change. As an uncontrolled defaultValue this meant
+  // only the first sidebar click after a page load ever moved the tabs. Driving
+  // the value from the URL makes every click work, and keeps the address bar
+  // honest when a tab is clicked directly so the view can be linked or reloaded.
+  const activeTab = searchParams.get("tab") || "info"
+  const selectTab = (tab: string) =>
+    router.replace(tab === "info" ? "/dashboard/parent" : `/dashboard/parent?tab=${tab}`,
+      { scroll: false })
 
   // Attendance
   const [attendanceData, setAttendanceData] = useState<any[]>([])
@@ -341,7 +348,7 @@ function ParentPortalContent() {
         </div>
 
         {/* Tabs: Info / Payments / Results */}
-        <Tabs defaultValue={defaultTab}>
+        <Tabs value={activeTab} onValueChange={selectTab}>
           <TabsList className="w-full flex-wrap h-auto gap-1">
             <TabsTrigger value="info" className="flex-1 gap-1.5"><User className="h-3.5 w-3.5" />Profile</TabsTrigger>
             <TabsTrigger value="payments" className="flex-1 gap-1.5"><CreditCard className="h-3.5 w-3.5" />Payments</TabsTrigger>

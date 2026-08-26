@@ -16,6 +16,7 @@ import {
   Users2,
   Target,
   Globe,
+  CalendarDays,
 } from "lucide-react"
 
 export type UserRole = "super_admin" | "admin" | "teacher" | "accountant" | "parent" | "staff"
@@ -41,7 +42,7 @@ export const allNavigation: NavItem[] = [
     label: "Dashboard",
     href: "/dashboard",
     icon: LayoutDashboard,
-    roles: ["super_admin", "admin", "teacher", "accountant", "parent"],
+    roles: ["super_admin", "admin", "teacher", "accountant", "parent", "staff"],
   },
   {
     label: "My Child's Portal",
@@ -134,6 +135,17 @@ export const allNavigation: NavItem[] = [
     href: "/dashboard/fundraisers",
     icon: Target,
     roles: ["super_admin", "admin"],
+  },
+  {
+    // Staff see only the two read-only entries below; the rest of Academics
+    // stays with teachers and administrators.
+    label: "School Schedule",
+    icon: CalendarDays,
+    roles: ["staff"],
+    children: [
+      { label: "Timetable", href: "/dashboard/academics/timetable", roles: ["staff"] },
+      { label: "Academic Calendar", href: "/dashboard/academics/calendar", roles: ["staff"] },
+    ],
   },
   {
     label: "Academics",
@@ -241,13 +253,13 @@ export const allNavigation: NavItem[] = [
     label: "Messages",
     href: "/dashboard/messages",
     icon: MessageCircle,
-    roles: ["super_admin", "admin", "teacher", "parent"],
+    roles: ["super_admin", "admin", "teacher", "parent", "staff"],
   },
   {
     label: "Notifications",
     href: "/dashboard/notifications",
     icon: Bell,
-    roles: ["super_admin", "admin", "teacher", "accountant", "parent"],
+    roles: ["super_admin", "admin", "teacher", "accountant", "parent", "staff"],
   },
   {
     label: "Audit Logs",

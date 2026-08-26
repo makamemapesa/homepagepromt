@@ -96,6 +96,12 @@ class ExamResult(models.Model):
         blank=True,
         related_name="released_exam_results",
     )
+    # Set when an administrator releases a report card whose fees are not
+    # settled. Kept as its own flag rather than inferred from the payments,
+    # because a payment recorded afterwards would otherwise erase the fact that
+    # the waiver ever happened — and the bursar needs to see that it did.
+    fee_override = models.BooleanField(default=False)
+    fee_override_reason = models.TextField(blank=True, default="")
 
     class Meta:
         ordering = ["position"]
