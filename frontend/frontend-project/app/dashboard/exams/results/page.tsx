@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { useUser } from "@/contexts/user-context"
-import { api, getResults } from "@/lib/api-client"
+import { api, describeApiError, getResults } from "@/lib/api-client"
 import { exportCSV, buildTermOptions } from "@/lib/utils"
 import {
   Search, Download, TrendingUp, Award, Users, BarChart2, RefreshCw,
@@ -83,7 +83,8 @@ export default function ResultsPage() {
       setTerms(buildTermOptions(session))
       setSelectedTerm(`${term}, ${session}`)
     }).catch(() => {})
-    api.get("/api/classes/").then(r => setClasses(getResults(r.data))).catch(() => {})
+    api.get("/api/classes/").then(r => setClasses(getResults(r.data)))
+      .catch(err => setLoadMsg(describeApiError(err, "Could not load classes.")))
   }, [user, authLoading])
 
   // load available exam types when class/term changes
@@ -124,7 +125,7 @@ export default function ResultsPage() {
       `&page_size=500`   // whole class in one page; the 50-row default clips it
     )
       .then(r => { setResults(getResults(r.data)); setLoadMsg("") })
-      .catch(() => { setResults([]); setLoadMsg("Could not load results for this class and term.") })
+      .catch(err => { setResults([]); setLoadMsg(describeApiError(err, "Could not load results for this class and term.")) })
       .finally(() => setLoading(false))
   }, [selectedClassId, selectedTerm, academicSession, fetchTick, user, authLoading])
 

@@ -135,7 +135,13 @@ function ClassDetailDialog({ cls }: { cls: any }) {
   )
 }
 
-const EMPTY_FORM = { level: "", arm: "", section: "", capacity: "40", room: "", classTeacher: "", status: "active" }
+const EMPTY_FORM = {
+  level: "", arm: "", section: "", capacity: "40", room: "", classTeacher: "",
+  status: "active",
+  // A class with no subjects cannot be marked: Marks Entry offers only the
+  // subjects attached here, so leaving this out made every new class a dead end.
+  subjects: [] as number[],
+}
 
 const SECTIONS = ["Nursery", "Primary", "Secondary"]
 const SECTION_COLORS = [
@@ -161,6 +167,7 @@ export default function ClassesPage() {
 
   // Add
   const [addOpen, setAddOpen] = useState(false)
+  const [subjectsList, setSubjectsList] = useState<any[]>([])
   const [addForm, setAddForm] = useState({ ...EMPTY_FORM })
   const [addLoading, setAddLoading] = useState(false)
   const [addError, setAddError] = useState("")
@@ -198,6 +205,9 @@ export default function ClassesPage() {
     if (!["super_admin", "admin", "teacher"].includes(user.role)) return
     fetchClasses()
     api.get("/api/teachers/").then(r => setTeachers(getResults(r.data))).catch(() => {})
+    api.get("/api/subjects/?page_size=500")
+      .then(r => setSubjectsList(getResults(r.data)))
+      .catch(() => setSubjectsList([]))
   }, [user, authLoading])
 
   const buildPayload = (form: typeof EMPTY_FORM) => {
@@ -219,6 +229,7 @@ export default function ClassesPage() {
       room: form.room,
       classTeacher: (form.classTeacher && form.classTeacher !== "none") ? Number(form.classTeacher) : null,
       status: form.status,
+      subjects: form.subjects,
     }
   }
 
@@ -247,6 +258,7 @@ export default function ClassesPage() {
       room: cls.room || "",
       classTeacher: cls.classTeacher ? String(cls.classTeacher) : "none",
       status: cls.status || "active",
+      subjects: (cls.subjects || []).map((id: any) => Number(id)),
     })
     setEditError("")
     setEditTarget(cls)
@@ -558,6 +570,46 @@ export default function ClassesPage() {
                           </SelectContent>
                         </Select>
                       </div>
+                      <div className="flex flex-col gap-2">
+                        <Label>
+                          Subjects Offered
+                          <span className="ml-1 font-normal text-muted-foreground">
+                            ({addForm.subjects.length} selected)
+                          </span>
+                        </Label>
+                        {/* Marks Entry offers only the subjects attached here, so a
+                            class saved with none cannot be marked at all. */}
+                        {addForm.subjects.length === 0 && (
+                          <p className="text-xs text-yellow-700">
+                            Pick at least one, or this class cannot be used for Marks Entry.
+                          </p>
+                        )}
+                        <div className="grid max-h-44 grid-cols-2 gap-1.5 overflow-y-auto rounded-md border p-2">
+                          {subjectsList.filter((s: any) => s.status === "active").map((s: any) => {
+                            const on = addForm.subjects.includes(Number(s.id))
+                            return (
+                              <label key={s.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-muted/50">
+                                <input
+                                  type="checkbox"
+                                  checked={on}
+                                  onChange={() => setAddForm((f: any) => ({
+                                    ...f,
+                                    subjects: on
+                                      ? f.subjects.filter((id: number) => id !== Number(s.id))
+                                      : [...f.subjects, Number(s.id)],
+                                  }))}
+                                />
+                                <span className="truncate">{s.name}</span>
+                              </label>
+                            )
+                          })}
+                          {subjectsList.filter((s: any) => s.status === "active").length === 0 && (
+                            <p className="col-span-2 text-xs text-muted-foreground">
+                              No active subjects exist yet. Create them under Academics &rarr; Subjects first.
+                            </p>
+                          )}
+                        </div>
+                      </div>
                       {addError && <p className="text-xs text-destructive">{addError}</p>}
                     </div>
                     <DialogFooter>
@@ -758,6 +810,47 @@ export default function ClassesPage() {
               <Label>Room / Location</Label>
               <Input value={editForm.room} onChange={e => setEditForm(f => ({ ...f, room: e.target.value }))} />
             </div>
+            <div className="flex flex-col gap-2">
+              <Label>
+                Subjects Offered
+                <span className="ml-1 font-normal text-muted-foreground">
+                  ({editForm.subjects.length} selected)
+                </span>
+              </Label>
+              {/* Marks Entry offers only the subjects attached here, so a
+                  class saved with none cannot be marked at all. */}
+              {editForm.subjects.length === 0 && (
+                <p className="text-xs text-yellow-700">
+                  Pick at least one, or this class cannot be used for Marks Entry.
+                </p>
+              )}
+              <div className="grid max-h-44 grid-cols-2 gap-1.5 overflow-y-auto rounded-md border p-2">
+                {subjectsList.filter((s: any) => s.status === "active").map((s: any) => {
+                  const on = editForm.subjects.includes(Number(s.id))
+                  return (
+                    <label key={s.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-muted/50">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => setEditForm((f: any) => ({
+                          ...f,
+                          subjects: on
+                            ? f.subjects.filter((id: number) => id !== Number(s.id))
+                            : [...f.subjects, Number(s.id)],
+                        }))}
+                      />
+                      <span className="truncate">{s.name}</span>
+                    </label>
+                  )
+                })}
+                {subjectsList.filter((s: any) => s.status === "active").length === 0 && (
+                  <p className="col-span-2 text-xs text-muted-foreground">
+                    No active subjects exist yet. Create them under Academics &rarr; Subjects first.
+                  </p>
+                )}
+              </div>
+            </div>
+
             <div className="flex flex-col gap-2">
               <Label>Class Teacher</Label>
               <Select value={editForm.classTeacher || "none"} onValueChange={v => setEditForm(f => ({ ...f, classTeacher: v }))}>

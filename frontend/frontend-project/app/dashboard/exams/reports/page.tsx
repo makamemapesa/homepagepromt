@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { useUser } from "@/contexts/user-context"
-import { api, getResults } from "@/lib/api-client"
+import { api, describeApiError, getResults } from "@/lib/api-client"
 import { exportCSV, buildTermOptions } from "@/lib/utils"
 import { Search, Download, Printer, FileText, GraduationCap, Award, RefreshCw, Send, ShieldAlert } from "lucide-react"
 import { DashboardHeader } from "@/components/dashboard-header"
@@ -143,7 +143,7 @@ export default function ReportCardsPage() {
       `&academic_session=${encodeURIComponent(academicSession)}&page_size=500`
     api.get(url)
       .then(r => { setReportCardData(getResults(r.data)); setLoadMsg("") })
-      .catch(() => { setReportCardData([]); setLoadMsg("Could not load report cards for this class and term.") })
+      .catch(err => { setReportCardData([]); setLoadMsg(describeApiError(err, "Could not load report cards for this class and term.")) })
       .finally(() => setLoading(false))
     // Who is cleared to receive paperwork this term. This used to read every
     // payment for the term and work it out here, which a teacher is not allowed

@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { useUser } from "@/contexts/user-context"
-import { api, getResults } from "@/lib/api-client"
+import { api, describeApiError, getResults } from "@/lib/api-client"
 import { buildTermOptions } from "@/lib/utils"
 import { Save, CheckCircle2, ClipboardList, Users, BookOpen, Calculator } from "lucide-react"
 import { DashboardHeader } from "@/components/dashboard-header"
@@ -67,7 +67,8 @@ export default function MarksEntryPage() {
       setTerms(buildTermOptions(session))
       setSelectedTerm(`${term}, ${session}`)
     }).catch(() => {})
-    api.get("/api/classes/").then(r => setClasses(getResults(r.data))).catch(() => {})
+    api.get("/api/classes/").then(r => setClasses(getResults(r.data)))
+      .catch(err => setSaveMsg(describeApiError(err, "Could not load classes.")))
     api.get("/api/subjects/").then(r => setSubjectsList(getResults(r.data))).catch(() => {})
   }, [user, authLoading])
 
@@ -77,7 +78,7 @@ export default function MarksEntryPage() {
     if (!selectedClassId) { setAllStudents([]); return }
     api.get(`/api/students/?student_class=${selectedClassId}&status=active&page_size=500`)
       .then(r => setAllStudents(getResults(r.data)))
-      .catch(() => { setAllStudents([]); setSaveMsg("Could not load the class list. Check your connection and try again.") })
+      .catch(err => { setAllStudents([]); setSaveMsg(describeApiError(err, "Could not load the class list.")) })
   }, [selectedClassId, user, authLoading])
 
   useEffect(() => {
@@ -94,7 +95,7 @@ export default function MarksEntryPage() {
       `/api/exam-marks/?student_class=${selectedClassId}&subject=${selectedSubjectId}&term=${encodeURIComponent(selectedTerm)}&academic_session=${encodeURIComponent(academicSession)}&page_size=500`
     )
       .then(r => setAllMarksForTerm(getResults(r.data) as any[]))
-      .catch(() => { setAllMarksForTerm([]); setSaveMsg("Could not load existing marks for this selection.") })
+      .catch(err => { setAllMarksForTerm([]); setSaveMsg(describeApiError(err, "Could not load existing marks for this selection.")) })
   }, [selectedClassId, selectedSubjectId, selectedTerm, academicSession, refreshTick, user, authLoading])
 
   useEffect(() => {
@@ -276,6 +277,16 @@ export default function MarksEntryPage() {
                 <SelectTrigger><SelectValue placeholder="Select subject" /></SelectTrigger>
                 <SelectContent>{activeSubjects.map(s => <SelectItem key={s.id} value={s.name}>{s.name}</SelectItem>)}</SelectContent>
               </Select>
+              {/* An empty dropdown here reads as "the page is broken". It nearly
+                  always means the class was created without subjects attached,
+                  which nothing on this screen would otherwise tell you. */}
+              {selectedClass && activeSubjects.length === 0 && (
+                <p className="text-xs text-destructive">
+                  {(selectedClassData?.subjectNames || []).length === 0
+                    ? `No subjects are attached to ${selectedClass}. Add them under Academics → Classes → Edit, then return here.`
+                    : `${selectedClass} lists subjects, but none of them are active. Reactivate them under Academics → Subjects.`}
+                </p>
+              )}
             </div>
 
             <div className="flex flex-col gap-1.5">

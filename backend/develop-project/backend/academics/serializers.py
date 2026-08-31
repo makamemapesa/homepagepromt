@@ -66,7 +66,9 @@ class ClassListSerializer(serializers.ModelSerializer):
         fields = [
             "id", "name", "section", "level", "arm", "capacity",
             "room", "status", "class_teacher", "class_teacher_name",
-            "subject_names", "student_count", "enrolled_count",
+            # Both forms of the subject list: the names for display, and the ids
+            # the edit form needs to pre-tick what is already attached.
+            "subjects", "subject_names", "student_count", "enrolled_count",
             "can_manage_attendance",
         ]
 

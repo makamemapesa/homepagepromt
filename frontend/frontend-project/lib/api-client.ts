@@ -81,6 +81,24 @@ api.interceptors.response.use(
 )
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
+/**
+ * Turn a failed request into something a person can act on.
+ *
+ * An unreachable backend and an empty database look identical on screen: both
+ * end up as "no results yet". They call for opposite responses, so they must not
+ * read the same. Axios reports a connection failure with no `response` at all,
+ * which is what separates the two.
+ */
+export function describeApiError(err: any, fallback: string): string {
+  if (!err?.response) {
+    return `Cannot reach the server at ${BASE_URL}. Start the backend (python manage.py runserver) and try again.`
+  }
+  const status = err.response.status
+  if (status === 401) return "Your session has expired. Please sign in again."
+  if (status === 403) return "You do not have permission to view this."
+  return err.response?.data?.error || fallback
+}
+
 /** Extract results array from DRF paginated response or plain array */
 export function getResults<T>(data: { results?: T[] } | T[]): T[] {
   if (Array.isArray(data)) return data
