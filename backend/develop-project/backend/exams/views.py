@@ -1,13 +1,20 @@
 from django.db import transaction
-from django.db.models import Exists, OuterRef
+from django.db.models import Exists, OuterRef, Q
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 
-from core.permissions import CanReadExamRecords, IsTeacherOrAdmin
-from core.utils import get_teacher_class_ids, get_teacher_for, get_user_role
+from core.permissions import CanReadExamRecords, IsSuperAdminOrAdmin, IsTeacherOrAdmin
+from core.utils import (
+    get_teacher_class_ids,
+    get_teacher_for,
+    get_teacher_homeroom_class_ids,
+    get_teacher_subject_pairs,
+    get_user_role,
+)
 from .models import ExamMark, ExamResult, SubjectResult, _compute_grade, _compute_division
 from .serializers import ExamMarkSerializer, ExamResultSerializer, SubjectResultSerializer
 
@@ -50,10 +57,13 @@ class ExamMarkViewSet(viewsets.ModelViewSet):
             return ExamMark.objects.select_related("student", "subject", "student_class").all()
         
         elif role == 'teacher':
-            # Teachers see marks for classes they are homeroom or subject teacher of
-            class_ids = get_teacher_class_ids(get_teacher_for(user))
+            # A subject teacher sees the subjects they teach, class by class. The
+            # class teacher additionally sees their own homeroom whole, because
+            # they write its report-card comments and cannot judge a pupil from
+            # one subject.
+            teacher = get_teacher_for(user)
             return ExamMark.objects.filter(
-                student_class_id__in=class_ids
+                self._teacher_mark_filter(teacher)
             ).select_related("student", "subject", "student_class")
 
         elif role == 'accountant':
@@ -82,11 +92,132 @@ class ExamMarkViewSet(viewsets.ModelViewSet):
         
         return ExamMark.objects.none()
 
+    # ── Teacher scope ────────────────────────────────────────────────────
+    #
+    # Reading and writing are deliberately different shapes. A teacher may read
+    # their homeroom entire, but may only *write* the subjects they are actually
+    # assigned to teach — see get_teacher_subject_pairs.
+
+    @staticmethod
+    def _teacher_mark_filter(teacher):
+        """Q object matching every mark this teacher is allowed to read."""
+        pairs = get_teacher_subject_pairs(teacher)
+        homeroom_ids = get_teacher_homeroom_class_ids(teacher)
+
+        scope = Q(pk__in=[])  # matches nothing, so an unassigned teacher sees nothing
+        if homeroom_ids:
+            scope |= Q(student_class_id__in=homeroom_ids)
+        for class_id, subject_id in pairs:
+            scope |= Q(student_class_id=class_id, subject_id=subject_id)
+        return scope
+
+    def _rejection_reason(self, teacher, class_id, subject_id):
+        """Why this teacher may not mark this subject here, or None if they may."""
+        try:
+            pair = (int(class_id), int(subject_id))
+        except (TypeError, ValueError):
+            return "student_class and subject must both be valid ids."
+
+        if pair in get_teacher_subject_pairs(teacher):
+            return None
+
+        from academics.models import Class, Subject
+
+        subject = Subject.objects.filter(pk=pair[1]).first()
+        student_class = Class.objects.filter(pk=pair[0]).first()
+        return (
+            f"You are not assigned to teach "
+            f"{subject.name if subject else 'that subject'} in "
+            f"{student_class.name if student_class else 'that class'}. "
+            "Ask an administrator to add the assignment."
+        )
+
+    def _guard_teacher_write(self, serializer):
+        """Block a teacher saving a subject they do not teach in that class."""
+        if get_user_role(self.request.user) != "teacher":
+            return
+        data = serializer.validated_data
+        instance = serializer.instance
+        student_class = data.get("student_class") or getattr(instance, "student_class", None)
+        subject = data.get("subject") or getattr(instance, "subject", None)
+        reason = self._rejection_reason(
+            get_teacher_for(self.request.user),
+            getattr(student_class, "pk", None),
+            getattr(subject, "pk", None),
+        )
+        if reason:
+            raise PermissionDenied(reason)
+
+    def perform_create(self, serializer):
+        self._guard_teacher_write(serializer)
+        serializer.save()
+
+    def perform_update(self, serializer):
+        self._guard_teacher_write(serializer)
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        """Deleting a mark is an edit like any other, and follows the same rule.
+
+        A class teacher can *read* every subject in their homeroom, so without
+        this they could erase a colleague's marks — the one operation the
+        create/update guard did not cover, and the least recoverable.
+        """
+        if get_user_role(self.request.user) == "teacher":
+            reason = self._rejection_reason(
+                get_teacher_for(self.request.user),
+                instance.student_class_id,
+                instance.subject_id,
+            )
+            if reason:
+                raise PermissionDenied(reason)
+        instance.delete()
+
     def get_permissions(self):
-        """Teachers and admins can create/update marks."""
-        if self.action in ['create', 'update', 'partial_update', 'bulk_save']:
+        """Teachers and admins can create/update/delete marks."""
+        if self.action in ['create', 'update', 'partial_update', 'destroy', 'bulk_save']:
             return [IsTeacherOrAdmin()]
         return [CanReadExamRecords()]
+
+    @action(detail=False, methods=["get"], url_path="markable-subjects")
+    def markable_subjects(self, request):
+        """Subjects the signed-in user may enter marks for in a given class.
+
+        The Marks Entry screen builds its subject list from this, so the dropdown
+        and the save endpoint can never disagree — both answer from
+        ``get_teacher_subject_pairs``.
+
+        GET /api/exam-marks/markable-subjects/?student_class=<id>
+        """
+        from academics.models import Class, Subject
+
+        class_id = request.query_params.get("student_class")
+        if not class_id:
+            return Response({"error": "student_class is required."}, status=400)
+        student_class = Class.objects.filter(pk=class_id).first()
+        if student_class is None:
+            return Response({"error": "Class not found."}, status=404)
+
+        offered = student_class.subjects.filter(status="active")
+        role = get_user_role(request.user)
+
+        if role == "teacher":
+            subject_ids = {
+                subject_id
+                for cls_id, subject_id in get_teacher_subject_pairs(get_teacher_for(request.user))
+                if str(cls_id) == str(class_id)
+            }
+            subjects = Subject.objects.filter(pk__in=subject_ids).order_by("name")
+            restricted = True
+        else:
+            subjects = offered.order_by("name")
+            restricted = False
+
+        return Response({
+            "restricted": restricted,
+            "class_name": student_class.name,
+            "subjects": [{"id": s.id, "name": s.name, "code": s.code} for s in subjects],
+        })
 
     @action(detail=False, methods=["get"])
     def available_types(self, request):
@@ -130,16 +261,19 @@ class ExamMarkViewSet(viewsets.ModelViewSet):
             return Response({"error": "Expected a list of marks."}, status=400)
         from core.models import SchoolSettings
 
-        # Get teacher's allowed classes if user is a teacher
+        # A teacher may only save the subjects they are assigned to teach, class
+        # by class — being the class teacher is not a licence to mark a colleague's
+        # subject, so the check is on the (class, subject) pair, not the class.
         user = request.user
         role = get_user_role(user)
-        allowed_classes = None
+        teacher = None
 
         if role == 'teacher':
-            allowed_classes = get_teacher_class_ids(get_teacher_for(user))
-            if not allowed_classes:
+            teacher = get_teacher_for(user)
+            if not get_teacher_subject_pairs(teacher):
                 return Response(
-                    {"error": "You are not assigned to any class. Ask an administrator to assign you one."},
+                    {"error": "You are not assigned to teach any subject yet. "
+                              "Ask an administrator to assign you a subject and class."},
                     status=403,
                 )
 
@@ -157,15 +291,13 @@ class ExamMarkViewSet(viewsets.ModelViewSet):
                 if not item.get("academic_session"):
                     item["academic_session"] = _default_session
 
-                # Verify teacher has access to this class
-                if allowed_classes is not None:
-                    student_class_id = item.get("student_class")
-                    try:
-                        if int(student_class_id) not in allowed_classes:
-                            errors.append({"student": item.get("student"), "error": "Access denied to this class"})
-                            continue
-                    except (TypeError, ValueError):
-                        errors.append({"student": item.get("student"), "error": "Invalid student_class value"})
+                # Verify the teacher teaches this subject in this class
+                if teacher is not None:
+                    reason = self._rejection_reason(
+                        teacher, item.get("student_class"), item.get("subject")
+                    )
+                    if reason:
+                        errors.append({"student": item.get("student"), "error": reason})
                         continue
 
                 # Re-saving a mark is a correction, not a duplicate. Handing the
@@ -254,9 +386,17 @@ class ExamResultViewSet(viewsets.ModelViewSet):
         return ExamResult.objects.none()
 
     def get_permissions(self):
-        """Only admins and teachers can create/update results."""
+        """Teachers mark and compute; releasing a report card is an office act.
+
+        Publishing to families is the school speaking, not one teacher — it is
+        fee-gated, it is what a parent then holds the school to, and undoing it
+        is not a thing the screen offers. So it sits with the office, alongside
+        the fee waiver that was already administrator-only.
+        """
+        if self.action == 'send_to_parents':
+            return [IsSuperAdminOrAdmin()]
         if self.action in ['create', 'update', 'partial_update', 'destroy',
-                           'compute_results', 'send_to_parents']:
+                           'compute_results']:
             return [IsTeacherOrAdmin()]
         return [CanReadExamRecords()]
 
@@ -532,40 +672,16 @@ class ExamResultViewSet(viewsets.ModelViewSet):
             return Response({"error": "student_ids must be a list of student ids."}, status=400)
 
         user = request.user
-        role = get_user_role(user)
 
-        if override_fees and role not in ('super_admin', 'admin'):
-            return Response(
-                {"error": "Only an administrator can release a report card while fees are "
-                          "outstanding."},
-                status=403,
-            )
-
-        allowed_classes = None
-        if role == 'teacher':
-            allowed_classes = get_teacher_class_ids(get_teacher_for(user))
-            if not allowed_classes:
-                return Response(
-                    {"error": "You are not assigned to any class. Ask an administrator to assign you one."},
-                    status=403,
-                )
-
+        # Only the office reaches this action (see get_permissions), so there is
+        # no per-teacher class scope left to apply — "all" means every class, and
+        # the fee waiver no longer needs its own role check.
         results = ExamResult.objects.filter(term=term, academic_session=session)
-        if str(class_id).lower() == "all":
-            # "All classes" still means all the classes *this user* is responsible
-            # for, so a teacher cannot release another year group's reports.
-            if allowed_classes is not None:
-                results = results.filter(student_class_id__in=allowed_classes)
-        else:
+        if str(class_id).lower() != "all":
             try:
                 class_id = int(class_id)
             except (TypeError, ValueError):
                 return Response({"error": "student_class must be a class id or \"all\"."}, status=400)
-            if allowed_classes is not None and class_id not in allowed_classes:
-                return Response(
-                    {"error": "Access denied. You can only send report cards for your assigned classes."},
-                    status=403,
-                )
             results = results.filter(student_class_id=class_id)
 
         if student_ids is not None:

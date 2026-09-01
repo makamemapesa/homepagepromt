@@ -79,3 +79,26 @@ def get_teacher_class_ids(teacher) -> set:
         .values_list("student_class_id", flat=True)
     )
     return get_teacher_homeroom_class_ids(teacher) | assigned_ids
+
+
+def get_teacher_subject_pairs(teacher) -> set:
+    """``(class_id, subject_id)`` pairs a teacher actually teaches.
+
+    This is the finest scope the school records: a ``TeacherAssignment`` names
+    one subject in one class. Marks entry uses it, because taking Mathematics in
+    Form 1A is no licence to enter that class's English scores — which is what
+    :func:`get_teacher_class_ids` alone would allow, since it collapses every
+    assignment down to its class.
+
+    Homeroom is deliberately *not* folded in. Being class teacher is a pastoral
+    responsibility, not a claim on every subject's marks; where a class teacher
+    does teach the class, an assignment row says so.
+    """
+    from academics.models import TeacherAssignment
+
+    if teacher is None:
+        return set()
+    return set(
+        TeacherAssignment.objects.filter(teacher=teacher, status="active")
+        .values_list("student_class_id", "subject_id")
+    )
