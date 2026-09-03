@@ -580,7 +580,8 @@ class SendReportsToParentsTests(ExamPanelTestCase):
 
         self.assertEqual(res.status_code, 404)
 
-    def test_teacher_cannot_send_report_cards_for_another_class(self):
+    def test_a_teacher_cannot_release_report_cards_at_all(self):
+        """Releasing is an office act — even for the teacher's own class."""
         teacher_user = User.objects.create_user(
             username="teach9", email="teach9@example.com", password="StrongPass123"
         )
@@ -589,36 +590,46 @@ class SendReportsToParentsTests(ExamPanelTestCase):
         teacher, _ = Teacher.objects.get_or_create(
             email="teach9@example.com", defaults={"name": "Teacher Nine"}
         )
+        # Their own class, homeroom included, and every fee settled: still no.
         TeacherAssignment.objects.create(
-            teacher=teacher, subject=self.maths, student_class=self.other_cls, status="active"
+            teacher=teacher, subject=self.maths, student_class=self.cls, status="active"
         )
-        self.client.force_authenticate(user=teacher_user)
-
-        res = self.send(student_class=self.cls.id)
-
-        self.assertEqual(res.status_code, 403)
-
-    def test_all_classes_covers_only_the_classes_the_teacher_owns(self):
-        """A teacher choosing "all" must not release another year group."""
-        teacher_user = User.objects.create_user(
-            username="teach8", email="teach8@example.com", password="StrongPass123"
-        )
-        UserProfile.objects.update_or_create(user=teacher_user, defaults={"role": "teacher"})
-        teacher_user.refresh_from_db()
-        teacher, _ = Teacher.objects.get_or_create(
-            email="teach8@example.com", defaults={"name": "Teacher Eight"}
-        )
-        TeacherAssignment.objects.create(
-            teacher=teacher, subject=self.maths, student_class=self.other_cls, status="active"
-        )
+        self.cls.class_teacher = teacher
+        self.cls.save()
         for student in self.students:
             self.pay(student)
         self.client.force_authenticate(user=teacher_user)
 
-        res = self.send(student_class="all")
+        own_class = self.send(student_class=self.cls.id)
+        every_class = self.send(student_class="all")
 
-        self.assertEqual(res.status_code, 404)
+        self.assertEqual(own_class.status_code, 403)
+        self.assertEqual(every_class.status_code, 403)
         self.assertEqual(ExamResult.objects.filter(released_at__isnull=False).count(), 0)
+
+    def test_a_teacher_may_still_write_the_class_comment(self):
+        """Only publishing moved to the office; the comment stays with them."""
+        teacher_user = User.objects.create_user(
+            username="teach7", email="teach7@example.com", password="StrongPass123"
+        )
+        UserProfile.objects.update_or_create(user=teacher_user, defaults={"role": "teacher"})
+        teacher_user.refresh_from_db()
+        teacher, _ = Teacher.objects.get_or_create(
+            email="teach7@example.com", defaults={"name": "Teacher Seven"}
+        )
+        self.cls.class_teacher = teacher
+        self.cls.save()
+        result = ExamResult.objects.filter(student_class=self.cls).first()
+        self.client.force_authenticate(user=teacher_user)
+
+        res = self.client.patch(
+            f"/api/exam-results/{result.id}/", {"teacher_comment": "A strong term."},
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, 200)
+        result.refresh_from_db()
+        self.assertEqual(result.teacher_comment, "A strong term.")
 
     def test_admin_can_send_across_all_classes_at_once(self):
         other_student = Student.objects.create(
@@ -795,7 +806,7 @@ class FeeOverrideTests(ExamPanelTestCase):
     # ── who may do it ─────────────────────────────────────────────────
 
     def test_a_teacher_cannot_waive_fees(self):
-        """A teacher cannot even read the ledger, so they cannot forgive it."""
+        """Releasing at all is an office act, so waiving the fee certainly is."""
         teacher_user = User.objects.create_user(
             username="t_waive", email="t_waive@school.test", password="StrongPass123"
         )
@@ -811,8 +822,11 @@ class FeeOverrideTests(ExamPanelTestCase):
         res = self.send(override_fees=True, override_reason="Please")
 
         self.assertEqual(res.status_code, 403)
-        self.assertIn("administrator", res.data["error"])
-        self.assertIsNone(self.result().released_at)
+        # Refused at the door now rather than by the waiver's own check, so the
+        # message is DRF's; what matters is that nothing was released or waived.
+        row = self.result()
+        self.assertIsNone(row.released_at)
+        self.assertFalse(row.fee_override)
 
     def test_the_override_cannot_be_forged_through_a_plain_patch(self):
         """The flag must not be settable outside send_to_parents."""
@@ -828,3 +842,212 @@ class FeeOverrideTests(ExamPanelTestCase):
         self.assertEqual(res.status_code, 200)
         self.assertFalse(row.fee_override)
         self.assertIsNone(row.released_at)
+
+
+class TeacherSubjectScopeTests(ExamPanelTestCase):
+    """A teacher manages the examination panel for the subjects they teach.
+
+    Being assigned Mathematics in Form 1A is not a licence to enter that class's
+    English scores, and being its class teacher is not either.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.teacher_user = User.objects.create_user(
+            username="maths1", email="maths1@example.com", password="StrongPass123"
+        )
+        UserProfile.objects.update_or_create(user=self.teacher_user, defaults={"role": "teacher"})
+        self.teacher_user.refresh_from_db()
+        self.teacher, _ = Teacher.objects.get_or_create(
+            email="maths1@example.com", defaults={"name": "Maths Teacher"}
+        )
+        TeacherAssignment.objects.create(
+            teacher=self.teacher, subject=self.maths, student_class=self.cls, status="active"
+        )
+        self.cls.subjects.add(self.maths, self.english)
+
+    def as_teacher(self):
+        self.client.force_authenticate(user=self.teacher_user)
+
+    # ── Saving ───────────────────────────────────────────────────────────
+
+    def test_the_subject_they_teach_saves(self):
+        self.as_teacher()
+
+        res = self.bulk_save([self.mark_payload(self.students[0], self.maths, "CA 1", 70)])
+
+        self.assertEqual(res.json()["saved"], 1)
+        self.assertEqual(ExamMark.objects.count(), 1)
+
+    def test_another_subject_in_the_same_class_is_refused(self):
+        self.as_teacher()
+
+        res = self.bulk_save([self.mark_payload(self.students[0], self.english, "CA 1", 70)])
+
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json()["saved"], 0)
+        self.assertEqual(ExamMark.objects.count(), 0)
+
+    def test_the_refusal_names_the_subject_and_class(self):
+        self.as_teacher()
+
+        res = self.bulk_save([self.mark_payload(self.students[0], self.english, "CA 1", 70)])
+
+        message = res.json()["errors"][0]["error"]
+        self.assertIn("English", message)
+        self.assertIn("Form 1A", message)
+        self.assertIn("administrator", message)
+
+    def test_a_mixed_batch_saves_the_permitted_rows_only(self):
+        self.as_teacher()
+
+        res = self.bulk_save([
+            self.mark_payload(self.students[0], self.maths, "CA 1", 70),
+            self.mark_payload(self.students[1], self.english, "CA 1", 65),
+            self.mark_payload(self.students[2], self.maths, "CA 1", 80),
+        ])
+
+        self.assertEqual(res.json()["saved"], 2)
+        self.assertEqual(len(res.json()["errors"]), 1)
+        self.assertEqual(set(ExamMark.objects.values_list("subject_id", flat=True)), {self.maths.id})
+
+    def test_a_teacher_with_no_assignment_is_told_what_to_do(self):
+        Teacher.objects.filter(pk=self.teacher.pk).update(email="maths1@example.com")
+        TeacherAssignment.objects.all().delete()
+        self.as_teacher()
+
+        res = self.bulk_save([self.mark_payload(self.students[0], self.maths, "CA 1", 70)])
+
+        self.assertEqual(res.status_code, 403)
+        self.assertIn("not assigned to teach any subject", res.json()["error"])
+
+    def test_an_admin_may_still_save_any_subject(self):
+        res = self.bulk_save([self.mark_payload(self.students[0], self.english, "CA 1", 70)])
+
+        self.assertEqual(res.json()["saved"], 1)
+
+    # ── The single-record endpoints, not just the bulk one ───────────────
+
+    def test_posting_one_mark_directly_is_guarded(self):
+        self.as_teacher()
+
+        res = self.client.post(
+            "/api/exam-marks/", self.mark_payload(self.students[0], self.english, "CA 1", 70),
+            format="json",
+        )
+
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(ExamMark.objects.count(), 0)
+
+    def test_patching_a_mark_onto_another_subject_is_guarded(self):
+        mark = ExamMark.objects.create(
+            student=self.students[0], subject=self.maths, student_class=self.cls,
+            term=TERM, exam_type="CA 1", academic_session=SESSION, score=70,
+        )
+        self.as_teacher()
+
+        res = self.client.patch(
+            f"/api/exam-marks/{mark.id}/", {"subject": self.english.id}, format="json"
+        )
+
+        self.assertEqual(res.status_code, 403)
+        mark.refresh_from_db()
+        self.assertEqual(mark.subject_id, self.maths.id)
+
+    # ── Reading ──────────────────────────────────────────────────────────
+
+    def test_a_subject_teacher_reads_only_their_own_subject(self):
+        self.bulk_save([
+            self.mark_payload(self.students[0], self.maths, "CA 1", 70),
+            self.mark_payload(self.students[0], self.english, "CA 1", 65),
+        ])
+        self.as_teacher()
+
+        res = self.client.get("/api/exam-marks/")
+
+        subjects = {row["subject"] for row in res.json()["results"]}
+        self.assertEqual(subjects, {self.maths.id})
+
+    def test_the_class_teacher_reads_the_whole_homeroom(self):
+        """They write the report-card comment, so one subject is not enough."""
+        self.cls.class_teacher = self.teacher
+        self.cls.save()
+        self.bulk_save([
+            self.mark_payload(self.students[0], self.maths, "CA 1", 70),
+            self.mark_payload(self.students[0], self.english, "CA 1", 65),
+        ])
+        self.as_teacher()
+
+        res = self.client.get("/api/exam-marks/")
+
+        subjects = {row["subject"] for row in res.json()["results"]}
+        self.assertEqual(subjects, {self.maths.id, self.english.id})
+
+    def test_the_class_teacher_still_cannot_mark_a_colleagues_subject(self):
+        self.cls.class_teacher = self.teacher
+        self.cls.save()
+        self.as_teacher()
+
+        res = self.bulk_save([self.mark_payload(self.students[0], self.english, "CA 1", 70)])
+
+        self.assertEqual(res.json()["saved"], 0)
+        self.assertEqual(ExamMark.objects.count(), 0)
+
+    # ── What the screen offers ───────────────────────────────────────────
+
+    def test_markable_subjects_lists_only_what_the_teacher_teaches(self):
+        self.as_teacher()
+
+        res = self.client.get(f"/api/exam-marks/markable-subjects/?student_class={self.cls.id}")
+
+        body = res.json()
+        self.assertTrue(body["restricted"])
+        self.assertEqual([s["name"] for s in body["subjects"]], ["Mathematics"])
+
+    def test_markable_subjects_is_empty_for_a_class_they_do_not_teach(self):
+        self.as_teacher()
+
+        res = self.client.get(f"/api/exam-marks/markable-subjects/?student_class={self.other_cls.id}")
+
+        self.assertTrue(res.json()["restricted"])
+        self.assertEqual(res.json()["subjects"], [])
+
+    def test_markable_subjects_gives_an_admin_every_subject_the_class_offers(self):
+        res = self.client.get(f"/api/exam-marks/markable-subjects/?student_class={self.cls.id}")
+
+        body = res.json()
+        self.assertFalse(body["restricted"])
+        self.assertEqual(
+            sorted(s["name"] for s in body["subjects"]), ["English", "Mathematics"]
+        )
+
+    def test_markable_subjects_needs_a_class(self):
+        self.assertEqual(self.client.get("/api/exam-marks/markable-subjects/").status_code, 400)
+
+    def test_a_teacher_with_no_assignment_reads_nothing(self):
+        """The read filter must fail closed, not fall back to "everything"."""
+        self.bulk_save([self.mark_payload(self.students[0], self.maths, "CA 1", 70)])
+        TeacherAssignment.objects.all().delete()
+        self.as_teacher()
+
+        res = self.client.get("/api/exam-marks/")
+
+        self.assertEqual(res.json()["results"], [])
+
+    def test_marks_from_a_class_they_do_not_teach_stay_hidden(self):
+        other_student = Student.objects.create(
+            reg_no="REG-OTHER", first_name="Other", last_name="Pupil",
+            date_of_birth=date(2010, 1, 1), gender="Female",
+            student_class=self.other_cls, admission_date=date(2024, 1, 1),
+        )
+        ExamMark.objects.create(
+            student=other_student, subject=self.maths, student_class=self.other_cls,
+            term=TERM, exam_type="CA 1", academic_session=SESSION, score=90,
+        )
+        self.bulk_save([self.mark_payload(self.students[0], self.maths, "CA 1", 70)])
+        self.as_teacher()
+
+        res = self.client.get("/api/exam-marks/")
+
+        classes = {row["student_class"] for row in res.json()["results"]}
+        self.assertEqual(classes, {self.cls.id})

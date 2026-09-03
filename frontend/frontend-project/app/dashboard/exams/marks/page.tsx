@@ -35,6 +35,12 @@ export default function MarksEntryPage() {
   const { getGrade } = useGradeConfig()
   const [classes, setClasses] = useState<any[]>([])
   const [subjectsList, setSubjectsList] = useState<any[]>([])
+  // Which subjects the signed-in user may actually mark in the chosen class.
+  // A teacher gets only the subjects they are assigned to teach there; the same
+  // rule guards the save endpoint, so the dropdown cannot offer a subject the
+  // server will then refuse.
+  const [markable, setMarkable] = useState<{ subjects: any[]; restricted: boolean } | null>(null)
+  const [markableLoading, setMarkableLoading] = useState(false)
   const [allStudents, setAllStudents] = useState<any[]>([])
 
   const [selectedClass, setSelectedClass] = useState("")
@@ -84,6 +90,17 @@ export default function MarksEntryPage() {
   useEffect(() => {
     if (authLoading || !user) return
     if (!["super_admin", "admin", "teacher"].includes(user.role)) return
+    if (!selectedClassId) { setMarkable(null); return }
+    setMarkableLoading(true)
+    api.get(`/api/exam-marks/markable-subjects/?student_class=${selectedClassId}`)
+      .then(r => setMarkable({ subjects: r.data.subjects || [], restricted: !!r.data.restricted }))
+      .catch(() => setMarkable({ subjects: [], restricted: false }))
+      .finally(() => setMarkableLoading(false))
+  }, [selectedClassId, user, authLoading])
+
+  useEffect(() => {
+    if (authLoading || !user) return
+    if (!["super_admin", "admin", "teacher"].includes(user.role)) return
     if (!selectedClassId || !selectedSubjectId || !selectedTerm) {
       setAllMarksForTerm([])
       return
@@ -124,9 +141,14 @@ export default function MarksEntryPage() {
   // student_count is active-only, so it cannot tell "nobody enrolled" apart from
   // "everyone here is suspended" - enrolled_count carries the unfiltered total.
   const enrolledInClass = Number(selectedClassData?.enrolledCount ?? 0)
-  const activeSubjects = selectedClassData
-    ? subjectsList.filter(s => s.status === "active" && (selectedClassData.subjectNames || []).includes(s.name))
-    : subjectsList.filter(s => s.status === "active")
+  // The server decides: for a teacher this is the subjects they teach in this
+  // class, for an admin every active subject the class offers. Falls back to the
+  // local list only before the first response arrives.
+  const activeSubjects = markable
+    ? markable.subjects
+    : selectedClassData
+      ? subjectsList.filter(s => s.status === "active" && (selectedClassData.subjectNames || []).includes(s.name))
+      : subjectsList.filter(s => s.status === "active")
 
   const availableTypes = useMemo(
     () => Array.from(new Set(allMarksForTerm.map(m => m.examType))).sort() as string[],
@@ -280,11 +302,18 @@ export default function MarksEntryPage() {
               {/* An empty dropdown here reads as "the page is broken". It nearly
                   always means the class was created without subjects attached,
                   which nothing on this screen would otherwise tell you. */}
-              {selectedClass && activeSubjects.length === 0 && (
+              {selectedClass && !markableLoading && activeSubjects.length === 0 && (
                 <p className="text-xs text-destructive">
-                  {(selectedClassData?.subjectNames || []).length === 0
-                    ? `No subjects are attached to ${selectedClass}. Add them under Academics → Classes → Edit, then return here.`
-                    : `${selectedClass} lists subjects, but none of them are active. Reactivate them under Academics → Subjects.`}
+                  {markable?.restricted
+                    ? `You are not assigned to teach any subject in ${selectedClass}. Ask an administrator to add the assignment under Academics → Teacher Assignment.`
+                    : (selectedClassData?.subjectNames || []).length === 0
+                      ? `No subjects are attached to ${selectedClass}. Add them under Academics → Classes → Edit, then return here.`
+                      : `${selectedClass} lists subjects, but none of them are active. Reactivate them under Academics → Subjects.`}
+                </p>
+              )}
+              {markable?.restricted && activeSubjects.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Showing the {activeSubjects.length === 1 ? "subject" : `${activeSubjects.length} subjects`} you teach in {selectedClass}.
                 </p>
               )}
             </div>

@@ -189,9 +189,13 @@ export default function ReportCardsPage() {
   // read their own child's report. Neither writes the class teacher's comment
   // nor releases a card.
   const canManage = !!user && ["super_admin", "admin", "teacher"].includes(user.role)
+  // Releasing is an office act, not a teaching one: it is fee-gated, it is the
+  // school speaking to a family, and nothing on this screen takes it back. The
+  // teacher still writes the comment above — they just do not publish it.
+  const canRelease = !!user && ["super_admin", "admin"].includes(user.role)
   // A teacher cannot see the fee ledger, so they are in no position to forgive
   // it. The server enforces this too; this only keeps the button off their screen.
-  const canOverrideFees = !!user && ["super_admin", "admin"].includes(user.role)
+  const canOverrideFees = canRelease
 
   /** Release report cards to parents. Returns the server's summary, or null. */
   const sendToParents = async (
@@ -432,7 +436,7 @@ export default function ReportCardsPage() {
                 <CardDescription>{selectedClassName} · {selectedTerm} · Click &quot;View&quot; to open full report card</CardDescription>
               </div>
               <div className="flex items-center gap-2">
-                {canManage && (
+                {canRelease && (
                   <Button
                     size="sm"
                     className="gap-1.5"
@@ -473,13 +477,18 @@ export default function ReportCardsPage() {
                 </DropdownMenu>
               </div>
             </div>
-            {canManage && (
+            {canRelease ? (
               <p className="text-xs text-muted-foreground">
                 Sending releases each report card to the parent portal and notifies the linked
                 guardians. Students whose fees for {selectedTerm} are not fully settled are held
                 back, and you are told who and why.
               </p>
-            )}
+            ) : canManage ? (
+              <p className="text-xs text-muted-foreground">
+                Report cards are released to parents by the school office. Enter marks and the
+                class teacher&apos;s comment here, then ask the office to send them out.
+              </p>
+            ) : null}
             {sendError && <p className="text-xs text-destructive">{sendError}</p>}
             <div className="relative pt-2">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground mt-1" />
@@ -813,7 +822,7 @@ export default function ReportCardsPage() {
                       {isPassed ? "Promoted" : "Repeat"}
                     </Badge>
                     <div className="flex gap-2">
-                      {canManage && (
+                      {canRelease && (
                         <Button
                           size="sm"
                           className="gap-2"
